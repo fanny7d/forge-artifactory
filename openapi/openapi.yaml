@@ -1,0 +1,1577 @@
+openapi: 3.1.0
+info:
+  title: Artifact Repository API
+  version: 1.0.0
+  description: API-first immutable binary artifact repository.
+servers:
+  - url: /
+security:
+  - bearerAuth: []
+x-base-paths: &basePaths
+  /healthz:
+    get:
+      operationId: healthz
+      security: []
+      responses:
+        "200":
+          description: Process is alive.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+  /readyz:
+    get:
+      operationId: readyz
+      security: []
+      responses:
+        "200":
+          description: Dependencies are ready.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+  /metrics:
+    get:
+      operationId: metrics
+      security: []
+      responses:
+        "200":
+          description: Prometheus metrics.
+          content:
+            text/plain:
+              schema:
+                type: string
+  /api/v1/repositories:
+    post:
+      operationId: createRepository
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateRepositoryRequest"
+      responses:
+        "201":
+          description: Repository created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: listRepositories
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Visible repositories.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RepositoryPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+    get:
+      operationId: getRepository
+      responses:
+        "200":
+          description: Repository details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Repository"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/channels/{channel}/promotions:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/ChannelName"
+    post:
+      operationId: promoteChannel
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PromoteChannelRequest"
+      responses:
+        "200":
+          description: Channel promoted.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelRevision"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/channels/{channel}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/ChannelName"
+    get:
+      operationId: getChannel
+      responses:
+        "200":
+          description: Current Channel state.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Channel"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/channels/{channel}/history:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/ChannelName"
+    get:
+      operationId: getChannelHistory
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Immutable promotion history.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ChannelRevisionPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/channels/{channel}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/ChannelName"
+    get:
+      operationId: resolveChannel
+      parameters:
+        - name: os
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Coordinate"
+        - name: arch
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Coordinate"
+        - name: variant
+          in: query
+          schema:
+            $ref: "#/components/schemas/OptionalCoordinate"
+        - name: role
+          in: query
+          schema:
+            $ref: "#/components/schemas/OptionalCoordinate"
+        - $ref: "#/components/parameters/Redirect"
+      responses:
+        "200":
+          description: Resolved signed Artifact.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/service-accounts:
+    post:
+      operationId: createServiceAccount
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateServiceAccountRequest"
+      responses:
+        "201":
+          description: ServiceAccount created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAccount"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: listServiceAccounts
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: ServiceAccounts.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAccountPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/service-accounts/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ServiceAccountID"
+    get:
+      operationId: getServiceAccount
+      responses:
+        "200":
+          description: ServiceAccount details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ServiceAccount"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/service-accounts/{id}/tokens:
+    parameters:
+      - $ref: "#/components/parameters/ServiceAccountID"
+    post:
+      operationId: createToken
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateTokenRequest"
+      responses:
+        "201":
+          description: Token created; Secret is returned only here and on valid replay.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IssuedToken"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: listTokens
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Token metadata without Secrets.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TokenPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/tokens/{id}/revoke:
+    parameters:
+      - $ref: "#/components/parameters/TokenID"
+    post:
+      operationId: revokeToken
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Token revoked.
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/audit-events:
+    get:
+      operationId: listAuditEvents
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Audit events.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AuditEventPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/signing-keys/{keyId}:
+    parameters:
+      - $ref: "#/components/parameters/KeyID"
+    get:
+      operationId: getSigningKey
+      responses:
+        "200":
+          description: Public-key discovery data; not a trust root.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SigningKey"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: ar1
+  parameters:
+    Repo:
+      x-go-name: RepoPathParameter
+      name: repo
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Name"
+    PackageName:
+      x-go-name: PackagePathParameter
+      name: package
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Name"
+    ChannelName:
+      x-go-name: ChannelPathParameter
+      name: channel
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Name"
+    Version:
+      x-go-name: VersionPathParameter
+      name: version
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Version"
+    ArtifactPath:
+      x-go-name: ArtifactPathParameter
+      name: path
+      in: path
+      required: true
+      allowReserved: true
+      description: Normalized slash-separated logical path; runtime routing captures remaining segments.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 1024
+    ReleaseArtifactID:
+      x-go-name: ReleaseArtifactIDPathParameter
+      name: releaseArtifactId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    ServiceAccountID:
+      x-go-name: ServiceAccountIDPathParameter
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    TokenID:
+      x-go-name: TokenIDPathParameter
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    KeyID:
+      x-go-name: KeyIDPathParameter
+      name: keyId
+      in: path
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+    Cursor:
+      x-go-name: CursorQueryParameter
+      name: cursor
+      in: query
+      schema:
+        type: string
+        maxLength: 512
+    Limit:
+      x-go-name: LimitQueryParameter
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+    IdempotencyKey:
+      x-go-name: IdempotencyKeyHeaderParameter
+      name: Idempotency-Key
+      in: header
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 128
+        pattern: "^[A-Za-z0-9._:-]+$"
+    ContentLength:
+      x-go-name: ContentLengthHeaderParameter
+      name: Content-Length
+      in: header
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 0
+        maximum: 10737418240
+    ChecksumSha256:
+      x-go-name: ChecksumSha256HeaderParameter
+      name: X-Checksum-Sha256
+      in: header
+      schema:
+        $ref: "#/components/schemas/Sha256"
+    ChecksumDeploy:
+      x-go-name: ChecksumDeployHeaderParameter
+      name: X-Checksum-Deploy
+      in: header
+      schema:
+        type: boolean
+        default: false
+    ArtifactProperties:
+      x-go-name: ArtifactPropertiesHeaderParameter
+      name: X-Artifact-Properties
+      in: header
+      description: Base64URL-encoded UTF-8 JSON Object, decoded maximum 16 KiB.
+      schema:
+        type: string
+        maxLength: 21846
+        pattern: "^[A-Za-z0-9_-]*$"
+    Redirect:
+      x-go-name: RedirectQueryParameter
+      name: redirect
+      in: query
+      schema:
+        type: boolean
+        default: true
+    Range:
+      x-go-name: RangeHeaderParameter
+      name: Range
+      in: header
+      schema:
+        type: string
+        maxLength: 256
+        pattern: "^bytes="
+  responses:
+    BadRequest:
+      description: Request syntax or validation failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unauthorized:
+      description: Authentication failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Forbidden:
+      description: Scope or Repository authorization failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    NotFound:
+      description: Resource was not found or is intentionally hidden.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Conflict:
+      description: Immutable path, state, uniqueness, or idempotency conflict.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    Unprocessable:
+      description: Domain ownership or checksum constraint failed.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    PayloadTooLarge:
+      description: Upload exceeds the configured maximum.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    TooManyRequests:
+      description: The per-Token endpoint-class limit or upload concurrency limit was exceeded.
+      headers:
+        Retry-After:
+          required: true
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    InternalError:
+      description: Non-retryable internal failure.
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+    ServiceUnavailable:
+      description: Dependency unavailable or operation retained for recovery.
+      headers:
+        Retry-After:
+          schema:
+            type: integer
+            minimum: 1
+      content:
+        application/problem+json:
+          schema:
+            $ref: "#/components/schemas/Problem"
+  schemas:
+    Name:
+      type: string
+      minLength: 2
+      maxLength: 64
+      pattern: "^[a-z][a-z0-9._-]{1,63}$"
+    ServiceAccountName:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._ -]{0,127}$"
+    Version:
+      type: string
+      minLength: 1
+      maxLength: 128
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+    Coordinate:
+      type: string
+      minLength: 1
+      maxLength: 64
+      pattern: "^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$"
+    OptionalCoordinate:
+      type: string
+      maxLength: 64
+      pattern: "^[A-Za-z0-9._+-]{0,64}$"
+      default: ""
+    Sha256:
+      type: string
+      pattern: "^[0-9a-f]{64}$"
+    UUID:
+      type: string
+      format: uuid
+    Timestamp:
+      type: string
+      format: date-time
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok, ready]
+    Problem:
+      type: object
+      additionalProperties: false
+      required: [type, title, status, code, requestId]
+      properties:
+        type:
+          type: string
+          format: uri-reference
+        title:
+          type: string
+          maxLength: 256
+        status:
+          type: integer
+          minimum: 400
+          maximum: 599
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+        detail:
+          type: string
+          maxLength: 2048
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 64
+    PageCursor:
+      type: string
+      maxLength: 512
+      nullable: true
+    CreateRepositoryRequest:
+      type: object
+      additionalProperties: false
+      required: [key, displayName]
+      properties:
+        key:
+          $ref: "#/components/schemas/Name"
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 128
+    Repository:
+      type: object
+      additionalProperties: false
+      required: [id, key, displayName, type, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        key:
+          $ref: "#/components/schemas/Name"
+        displayName:
+          type: string
+        type:
+          type: string
+          const: local/raw
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    RepositoryPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Repository"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    Artifact:
+      type: object
+      additionalProperties: false
+      required: [id, repository, path, filename, mediaType, size, sha256, properties, createdBy, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        repository:
+          $ref: "#/components/schemas/Name"
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        filename:
+          type: string
+          minLength: 1
+          maxLength: 255
+        mediaType:
+          type: string
+          maxLength: 255
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+        sha256:
+          $ref: "#/components/schemas/Sha256"
+        properties:
+          type: object
+          maxProperties: 256
+          additionalProperties: true
+        createdBy:
+          $ref: "#/components/schemas/UUID"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    CreatePackageRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: "#/components/schemas/Name"
+    Package:
+      type: object
+      additionalProperties: false
+      required: [id, repository, name, channels, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        repository:
+          $ref: "#/components/schemas/Name"
+        name:
+          $ref: "#/components/schemas/Name"
+        channels:
+          type: array
+          minItems: 2
+          maxItems: 2
+          items:
+            type: string
+            enum: [candidate, stable]
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    PackagePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Package"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    CreateReleaseRequest:
+      type: object
+      additionalProperties: false
+      required: [version]
+      properties:
+        version:
+          $ref: "#/components/schemas/Version"
+    ReleaseState:
+      type: string
+      enum: [draft, publishing, published, publish_failed]
+    AddReleaseArtifactRequest:
+      type: object
+      additionalProperties: false
+      required: [artifactPath, os, arch]
+      properties:
+        artifactPath:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        os:
+          $ref: "#/components/schemas/Coordinate"
+        arch:
+          $ref: "#/components/schemas/Coordinate"
+        variant:
+          $ref: "#/components/schemas/OptionalCoordinate"
+        role:
+          $ref: "#/components/schemas/OptionalCoordinate"
+    ReleaseArtifact:
+      type: object
+      additionalProperties: false
+      required: [id, artifact, os, arch, variant, role]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        artifact:
+          $ref: "#/components/schemas/Artifact"
+        os:
+          $ref: "#/components/schemas/Coordinate"
+        arch:
+          $ref: "#/components/schemas/Coordinate"
+        variant:
+          $ref: "#/components/schemas/OptionalCoordinate"
+        role:
+          $ref: "#/components/schemas/OptionalCoordinate"
+    Release:
+      type: object
+      additionalProperties: false
+      required: [id, repository, package, version, state, artifacts, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        repository:
+          $ref: "#/components/schemas/Name"
+        package:
+          $ref: "#/components/schemas/Name"
+        version:
+          $ref: "#/components/schemas/Version"
+        state:
+          $ref: "#/components/schemas/ReleaseState"
+        artifacts:
+          type: array
+          items:
+            $ref: "#/components/schemas/ReleaseArtifact"
+        publishedAt:
+          $ref: "#/components/schemas/Timestamp"
+        failureCode:
+          type: string
+          maxLength: 128
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    ReleasePage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Release"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    ReleaseManifest:
+      type: object
+      additionalProperties: false
+      required: [version, manifest, manifestSha256, keyId, signature]
+      properties:
+        version:
+          $ref: "#/components/schemas/Version"
+        manifest:
+          type: string
+          contentEncoding: base64url
+        manifestSha256:
+          $ref: "#/components/schemas/Sha256"
+        keyId:
+          type: string
+          minLength: 8
+          maxLength: 128
+        signature:
+          type: string
+          contentEncoding: base64url
+    PromoteChannelRequest:
+      type: object
+      additionalProperties: false
+      required: [version, reason]
+      properties:
+        version:
+          $ref: "#/components/schemas/Version"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 512
+    Channel:
+      type: object
+      additionalProperties: false
+      required: [id, repository, package, name, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        repository:
+          $ref: "#/components/schemas/Name"
+        package:
+          $ref: "#/components/schemas/Name"
+        name:
+          type: string
+          enum: [candidate, stable]
+        currentVersion:
+          $ref: "#/components/schemas/Version"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    ChannelRevision:
+      type: object
+      additionalProperties: false
+      required: [id, channel, toVersion, actorId, reason, requestId, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        channel:
+          type: string
+          enum: [candidate, stable]
+        fromVersion:
+          $ref: "#/components/schemas/Version"
+        toVersion:
+          $ref: "#/components/schemas/Version"
+        actorId:
+          $ref: "#/components/schemas/UUID"
+        reason:
+          type: string
+        requestId:
+          type: string
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    ChannelRevisionPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ChannelRevision"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    ResolveArtifact:
+      type: object
+      additionalProperties: false
+      required: [path, os, arch, variant, role, sha256, size]
+      properties:
+        path:
+          type: string
+        os:
+          $ref: "#/components/schemas/Coordinate"
+        arch:
+          $ref: "#/components/schemas/Coordinate"
+        variant:
+          $ref: "#/components/schemas/OptionalCoordinate"
+        role:
+          $ref: "#/components/schemas/OptionalCoordinate"
+        sha256:
+          $ref: "#/components/schemas/Sha256"
+        size:
+          type: integer
+          format: int64
+          minimum: 0
+    ResolveResponse:
+      type: object
+      additionalProperties: false
+      required: [version, manifest, keyId, signature, artifact, downloadUrl]
+      properties:
+        version:
+          $ref: "#/components/schemas/Version"
+        manifest:
+          type: string
+          contentEncoding: base64url
+        keyId:
+          type: string
+        signature:
+          type: string
+          contentEncoding: base64url
+        artifact:
+          $ref: "#/components/schemas/ResolveArtifact"
+        downloadUrl:
+          type: string
+          format: uri-reference
+    CreateServiceAccountRequest:
+      type: object
+      additionalProperties: false
+      required: [name]
+      properties:
+        name:
+          $ref: "#/components/schemas/ServiceAccountName"
+    ServiceAccount:
+      type: object
+      additionalProperties: false
+      required: [id, name, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        name:
+          $ref: "#/components/schemas/ServiceAccountName"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    ServiceAccountPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ServiceAccount"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    Scope:
+      type: string
+      enum:
+        - artifact:read
+        - artifact:write
+        - release:publish
+        - channel:promote
+        - admin
+    CreateTokenRequest:
+      type: object
+      additionalProperties: false
+      required: [scopes, repositories, expiresAt]
+      properties:
+        scopes:
+          type: array
+          minItems: 1
+          maxItems: 5
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Scope"
+        repositories:
+          type: array
+          maxItems: 200
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Name"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+    Token:
+      type: object
+      additionalProperties: false
+      required: [id, serviceAccountId, scopes, repositories, expiresAt, revoked, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        serviceAccountId:
+          $ref: "#/components/schemas/UUID"
+        scopes:
+          type: array
+          items:
+            $ref: "#/components/schemas/Scope"
+        repositories:
+          type: array
+          items:
+            $ref: "#/components/schemas/Name"
+        expiresAt:
+          $ref: "#/components/schemas/Timestamp"
+        revoked:
+          type: boolean
+        lastUsedAt:
+          $ref: "#/components/schemas/Timestamp"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    IssuedToken:
+      allOf:
+        - $ref: "#/components/schemas/Token"
+        - type: object
+          additionalProperties: false
+          required: [secret]
+          properties:
+            secret:
+              type: string
+              minLength: 84
+              maxLength: 84
+              pattern: "^ar1\\.[0-9a-f-]{36}\\.[A-Za-z0-9_-]{43}$"
+    TokenPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Token"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    AuditEvent:
+      type: object
+      additionalProperties: false
+      required: [id, action, resourceType, outcome, requestId, createdAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        actorId:
+          $ref: "#/components/schemas/UUID"
+        repositoryId:
+          $ref: "#/components/schemas/UUID"
+        action:
+          type: string
+          minLength: 1
+          maxLength: 128
+        resourceType:
+          type: string
+          minLength: 1
+          maxLength: 64
+        resourceId:
+          type: string
+          maxLength: 128
+        outcome:
+          type: string
+          enum: [success, denied, failed]
+        code:
+          type: string
+          maxLength: 128
+        requestId:
+          type: string
+          minLength: 1
+          maxLength: 64
+        details:
+          type: object
+          additionalProperties: true
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+    AuditEventPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/AuditEvent"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
+    SigningKey:
+      type: object
+      additionalProperties: false
+      required: [keyId, algorithm, publicKey, fingerprint, active, createdAt]
+      properties:
+        keyId:
+          type: string
+          minLength: 8
+          maxLength: 128
+        algorithm:
+          type: string
+          const: Ed25519
+        publicKey:
+          type: string
+          contentEncoding: base64
+        fingerprint:
+          $ref: "#/components/schemas/Sha256"
+        active:
+          type: boolean
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+paths:
+  !!merge <<: *basePaths
+  /api/v1/repositories/{repo}/artifacts/{path}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/ArtifactPath"
+    put:
+      operationId: putArtifact
+      parameters:
+        - $ref: "#/components/parameters/ContentLength"
+        - $ref: "#/components/parameters/ChecksumSha256"
+        - $ref: "#/components/parameters/ChecksumDeploy"
+        - $ref: "#/components/parameters/ArtifactProperties"
+      requestBody:
+        required: false
+        content:
+          application/octet-stream:
+            schema:
+              type: string
+              format: binary
+      responses:
+        "201":
+          description: Immutable Artifact created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artifact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    head:
+      operationId: headArtifact
+      responses:
+        "200":
+          description: Artifact headers.
+          headers:
+            Content-Length:
+              schema:
+                type: integer
+                format: int64
+            ETag:
+              schema:
+                type: string
+            X-Checksum-Sha256:
+              schema:
+                $ref: "#/components/schemas/Sha256"
+            X-Created-At:
+              schema:
+                type: string
+                format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: getArtifact
+      parameters:
+        - $ref: "#/components/parameters/Redirect"
+        - $ref: "#/components/parameters/Range"
+      responses:
+        "200":
+          description: Proxied artifact bytes.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "206":
+          description: Proxied byte range.
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "307":
+          description: Redirect to a short-lived public MinIO URL.
+          headers:
+            Location:
+              required: true
+              schema:
+                type: string
+                format: uri
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/metadata/{path}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/ArtifactPath"
+    get:
+      operationId: getArtifactMetadata
+      responses:
+        "200":
+          description: Artifact metadata.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Artifact"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+    post:
+      operationId: createPackage
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePackageRequest"
+      responses:
+        "201":
+          description: Package and default Channels created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Package"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: listPackages
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Packages in the Repository.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PackagePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+    get:
+      operationId: getPackage
+      responses:
+        "200":
+          description: Package details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Package"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/releases:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+    post:
+      operationId: createRelease
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateReleaseRequest"
+      responses:
+        "201":
+          description: Draft Release created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: listReleases
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Releases in the Package.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleasePage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/releases/{version}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/Version"
+    get:
+      operationId: getRelease
+      responses:
+        "200":
+          description: Release details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    delete:
+      operationId: cancelRelease
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Draft Release canceled.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/releases/{version}/artifacts:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/Version"
+    post:
+      operationId: addReleaseArtifact
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AddReleaseArtifactRequest"
+      responses:
+        "201":
+          description: Artifact reference added.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseArtifact"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/releases/{version}/artifacts/{releaseArtifactId}:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/Version"
+      - $ref: "#/components/parameters/ReleaseArtifactID"
+    delete:
+      operationId: removeReleaseArtifact
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "204":
+          description: Draft Artifact reference removed.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/releases/{version}/publish:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/Version"
+    post:
+      operationId: publishRelease
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Release published.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Release"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/Unprocessable"
+        "500":
+          $ref: "#/components/responses/InternalError"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/repositories/{repo}/packages/{package}/releases/{version}/manifest:
+    parameters:
+      - $ref: "#/components/parameters/Repo"
+      - $ref: "#/components/parameters/PackageName"
+      - $ref: "#/components/parameters/Version"
+    get:
+      operationId: getReleaseManifest
+      responses:
+        "200":
+          description: Exact signed Manifest.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReleaseManifest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'

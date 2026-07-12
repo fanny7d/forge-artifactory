@@ -1,0 +1,129 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "artifact-repository.fullname" . }}-worker
+  labels:
+    {{- include "artifact-repository.labels" . | nindent 4 }}
+    app.kubernetes.io/component: worker
+spec:
+  replicas: {{ .Values.worker.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "artifact-repository.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: worker
+  template:
+    metadata:
+      labels:
+        {{- include "artifact-repository.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: worker
+      annotations:
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+        checksum/secret: {{ include (print $.Template.BasePath "/secret.yaml") . | sha256sum }}
+        prometheus.io/scrape: "true"
+        prometheus.io/path: /metrics
+        prometheus.io/port: {{ .Values.worker.port | quote }}
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      initContainers:
+        - name: prepare-signing-key
+          image: {{ include "artifact-repository.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - /bin/sh
+            - -ec
+            - |
+              cp /source/private.pem /target/private.pem
+              cp /source/public.pem /target/public.pem
+              chmod 0600 /target/private.pem
+              chmod 0644 /target/public.pem
+              chown 65532:65532 /target/private.pem /target/public.pem
+          securityContext:
+            runAsNonRoot: false
+            runAsUser: 0
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
+              add:
+                - CHOWN
+          volumeMounts:
+            - name: signing-source
+              mountPath: /source
+              readOnly: true
+            - name: signing-keys
+              mountPath: /target
+      containers:
+        - name: worker
+          image: {{ include "artifact-repository.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - worker
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "artifact-repository.fullname" . }}
+            - secretRef:
+                name: {{ include "artifact-repository.secretName" . }}
+          env:
+            - name: HTTP_ADDR
+              value: ":{{ .Values.worker.port }}"
+          ports:
+            - name: http
+              containerPort: {{ .Values.worker.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: signing-keys
+              mountPath: /app/keys
+              readOnly: true
+      volumes:
+        - name: signing-source
+          secret:
+            secretName: {{ required "signing.existingSecret is required" .Values.signing.existingSecret }}
+            defaultMode: 0444
+            items:
+              - key: {{ .Values.signing.privateKeyKey }}
+                path: private.pem
+              - key: {{ .Values.signing.publicKeyKey }}
+                path: public.pem
+        - name: signing-keys
+          emptyDir: {}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

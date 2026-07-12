@@ -1,0 +1,14 @@
+.git
+.gitignore
+.local
+.superpowers
+.worktrees
+Dockerfile
+compose.yaml
+deploy
+docs
+tests
+*.md
+coverage.out
+dist
+tmp

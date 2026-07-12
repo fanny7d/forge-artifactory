@@ -1,0 +1,33 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "artifact-repository.fullname" . }}
+  labels:
+    {{- include "artifact-repository.labels" . | nindent 4 }}
+data:
+  MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}
+  MINIO_PUBLIC_ENDPOINT: {{ .Values.config.minioPublicEndpoint | quote }}
+  MINIO_BUCKET: {{ .Values.config.minioBucket | quote }}
+  MINIO_REGION: {{ .Values.config.minioRegion | quote }}
+  MINIO_USE_TLS: {{ .Values.config.minioUseTLS | quote }}
+  SIGNING_PRIVATE_KEY_FILE: /app/keys/private.pem
+  SIGNING_PUBLIC_KEY_FILE: /app/keys/public.pem
+  MAX_UPLOAD_BYTES: {{ .Values.config.maxUploadBytes | quote }}
+  UPLOAD_IDLE_TIMEOUT: {{ .Values.config.uploadIdleTimeout | quote }}
+  UPLOAD_MAX_DURATION: {{ .Values.config.uploadMaxDuration | quote }}
+  UPLOAD_LEASE: {{ .Values.config.uploadLease | quote }}
+  UPLOAD_HEARTBEAT: {{ .Values.config.uploadHeartbeat | quote }}
+  PUBLISH_LEASE: {{ .Values.config.publishLease | quote }}
+  PUBLISH_HEARTBEAT: {{ .Values.config.publishHeartbeat | quote }}
+  PRESIGN_TTL: {{ .Values.config.presignTTL | quote }}
+  ORPHAN_RETENTION: {{ .Values.config.orphanRetention | quote }}
+  IDEMPOTENCY_TTL: {{ .Values.config.idempotencyTTL | quote }}
+  READINESS_TIMEOUT: {{ .Values.config.readinessTimeout | quote }}
+  RATE_LIMIT_READ_RPS: {{ .Values.config.rateLimitReadRPS | quote }}
+  RATE_LIMIT_READ_BURST: {{ .Values.config.rateLimitReadBurst | quote }}
+  RATE_LIMIT_MUTATION_RPS: {{ .Values.config.rateLimitMutationRPS | quote }}
+  RATE_LIMIT_MUTATION_BURST: {{ .Values.config.rateLimitMutationBurst | quote }}
+  RATE_LIMIT_UPLOAD_RPS: {{ .Values.config.rateLimitUploadRPS | quote }}
+  RATE_LIMIT_UPLOAD_BURST: {{ .Values.config.rateLimitUploadBurst | quote }}
+  RATE_LIMIT_UPLOAD_CONCURRENCY: {{ .Values.config.rateLimitUploadConcurrency | quote }}
+  RATE_LIMIT_IDLE_TTL: {{ .Values.config.rateLimitIdleTTL | quote }}

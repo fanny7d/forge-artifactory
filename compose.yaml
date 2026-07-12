@@ -1,0 +1,159 @@
+name: artifact-repository
+
+x-app-image: &app-image
+  image: artifact-repository:local
+  build:
+    context: .
+
+x-runtime-environment: &runtime-environment
+  DATABASE_URL: postgresql://artifact:artifact-dev-password@postgres:5432/artifact?sslmode=disable
+  MINIO_ENDPOINT: http://minio:9000
+  MINIO_PUBLIC_ENDPOINT: http://localhost:9000
+  MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-artifact-minio}
+  MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-artifact-minio-development-secret}
+  MINIO_BUCKET: artifacts
+  MINIO_REGION: us-east-1
+  MINIO_USE_TLS: "false"
+  TOKEN_PEPPER: ${TOKEN_PEPPER:-dG9rZW4tcGVwcGVyLWRldmVsb3BtZW50LXZhbHVlISE}
+  IDEMPOTENCY_RESPONSE_KEY: ${IDEMPOTENCY_RESPONSE_KEY:-aWRlbXBvdGVuY3ktZGV2ZWxvcG1lbnQta2V5ISEhISE}
+  SIGNING_PRIVATE_KEY_FILE: /app/keys/private.pem
+  SIGNING_PUBLIC_KEY_FILE: /app/keys/public.pem
+  RATE_LIMIT_READ_RPS: ${RATE_LIMIT_READ_RPS:-50}
+  RATE_LIMIT_READ_BURST: ${RATE_LIMIT_READ_BURST:-100}
+  RATE_LIMIT_MUTATION_RPS: ${RATE_LIMIT_MUTATION_RPS:-10}
+  RATE_LIMIT_MUTATION_BURST: ${RATE_LIMIT_MUTATION_BURST:-20}
+  RATE_LIMIT_UPLOAD_RPS: ${RATE_LIMIT_UPLOAD_RPS:-2}
+  RATE_LIMIT_UPLOAD_BURST: ${RATE_LIMIT_UPLOAD_BURST:-4}
+  RATE_LIMIT_UPLOAD_CONCURRENCY: ${RATE_LIMIT_UPLOAD_CONCURRENCY:-4}
+  RATE_LIMIT_IDLE_TTL: ${RATE_LIMIT_IDLE_TTL:-15m}
+
+services:
+  postgres:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: artifact
+      POSTGRES_USER: artifact
+      POSTGRES_PASSWORD: artifact-dev-password
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U artifact -d artifact"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY:-artifact-minio}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY:-artifact-minio-development-secret}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:9000/minio/health/live >/dev/null"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+    volumes:
+      - minio-data:/data
+
+  minio-init:
+    image: minio/mc:RELEASE.2025-04-16T18-13-26Z
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        mc alias set local http://minio:9000 \
+          "$${MINIO_ACCESS_KEY}" "$${MINIO_SECRET_KEY}"
+        mc mb --ignore-existing local/artifacts
+    environment:
+      MINIO_ACCESS_KEY: ${MINIO_ACCESS_KEY:-artifact-minio}
+      MINIO_SECRET_KEY: ${MINIO_SECRET_KEY:-artifact-minio-development-secret}
+    restart: "no"
+
+  key-init:
+    <<: *app-image
+    user: "65532:65532"
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        if [ -f /app/keys/private.pem ] && [ -f /app/keys/public.pem ]; then
+          exit 0
+        fi
+        if [ -e /app/keys/private.pem ] || [ -e /app/keys/public.pem ]; then
+          echo "signing key volume contains a partial key pair" >&2
+          exit 1
+        fi
+        exec /app/artifact-repository keygen \
+          --private-key-file /app/keys/private.pem \
+          --public-key-file /app/keys/public.pem
+    volumes:
+      - signing-keys:/app/keys
+    restart: "no"
+
+  migrate:
+    <<: *app-image
+    command: ["migrate"]
+    environment:
+      DATABASE_URL: postgresql://artifact:artifact-dev-password@postgres:5432/artifact?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    <<: *app-image
+    command: ["api"]
+    environment:
+      <<: *runtime-environment
+      HTTP_ADDR: :8080
+    depends_on:
+      key-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/healthz >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - signing-keys:/app/keys:ro
+    restart: unless-stopped
+
+  worker:
+    <<: *app-image
+    command: ["worker"]
+    environment:
+      <<: *runtime-environment
+      HTTP_ADDR: :8081
+    depends_on:
+      key-init:
+        condition: service_completed_successfully
+      migrate:
+        condition: service_completed_successfully
+      minio-init:
+        condition: service_completed_successfully
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8081/healthz >/dev/null"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - signing-keys:/app/keys:ro
+    restart: unless-stopped
+
+volumes:
+  postgres-data:
+  minio-data:
+  signing-keys:

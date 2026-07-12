@@ -1,0 +1,36 @@
+{{- if .Values.monitoring.prometheusRule.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "artifact-repository.fullname" . }}
+  labels:
+    {{- include "artifact-repository.labels" . | nindent 4 }}
+    {{- with .Values.monitoring.prometheusRule.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: artifact-repository
+      rules:
+        - alert: ArtifactRepositoryDependencyFailures
+          expr: increase(artifact_repository_dependency_requests_total{result=~"failed|timeout"}[5m]) > 0
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: Artifact Repository dependency checks are failing
+        - alert: ArtifactRepositoryStagingObjectOld
+          expr: artifact_repository_staging_oldest_age_seconds > 86400
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: Artifact Repository has staging data older than 24 hours
+        - alert: ArtifactRepositorySigningFailure
+          expr: increase(artifact_repository_signing_failures_total[5m]) > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: Artifact Repository failed to sign a release manifest
+{{- end }}

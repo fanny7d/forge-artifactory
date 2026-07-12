@@ -1,0 +1,83 @@
+image:
+  repository: artifact-repository
+  tag: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+api:
+  replicaCount: 1
+  port: 8080
+  service:
+    type: ClusterIP
+    port: 80
+
+worker:
+  replicaCount: 1
+  port: 8081
+
+config:
+  minioEndpoint: http://minio:9000
+  minioPublicEndpoint: ""
+  minioBucket: artifacts
+  minioRegion: us-east-1
+  minioUseTLS: false
+  maxUploadBytes: "10737418240"
+  uploadIdleTimeout: 10m
+  uploadMaxDuration: 12h
+  uploadLease: 2m
+  uploadHeartbeat: 30s
+  publishLease: 5m
+  publishHeartbeat: 1m
+  presignTTL: 15m
+  orphanRetention: 24h
+  idempotencyTTL: 24h
+  readinessTimeout: 2s
+  rateLimitReadRPS: "50"
+  rateLimitReadBurst: "100"
+  rateLimitMutationRPS: "10"
+  rateLimitMutationBurst: "20"
+  rateLimitUploadRPS: "2"
+  rateLimitUploadBurst: "4"
+  rateLimitUploadConcurrency: "4"
+  rateLimitIdleTTL: 15m
+
+secrets:
+  create: true
+  existingSecret: ""
+  databaseURL: CHANGE_ME
+  minioAccessKey: CHANGE_ME
+  minioSecretKey: CHANGE_ME
+  tokenPepper: CHANGE_ME_BASE64URL_32_BYTES
+  idempotencyResponseKey: CHANGE_ME_BASE64URL_32_BYTES
+
+signing:
+  existingSecret: artifact-repository-signing-key
+  privateKeyKey: private.pem
+  publicKeyKey: public.pem
+
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 65532
+  runAsGroup: 65532
+  seccompProfile:
+    type: RuntimeDefault
+
+containerSecurityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+  readOnlyRootFilesystem: true
+
+resources: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+monitoring:
+  prometheusRule:
+    enabled: false
+    labels: {}

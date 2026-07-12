@@ -1,0 +1,222 @@
+# Artifact Repository
+
+一个 API 优先的不可变二进制制品仓库，支持原始制品、签名 Release，以及
+`candidate`/`stable` Channel 的原子晋级。PostgreSQL 负责可见状态，MinIO
+负责存储按内容寻址的不可变字节。
+
+## 本地流程
+
+以下命令需要 Docker Compose、`curl`、`jq`、Go 和 OpenSSL。命令使用具名
+Compose 项目，后续可以把同一个项目名传给 E2E 测试。
+
+如果不通过 Compose、直接运行二进制程序，先生成一对 Ed25519 密钥：
+
+```bash
+mkdir -p .local/signing
+go run ./cmd/artifact-repository keygen \
+  --private-key-file .local/signing/private.pem \
+  --public-key-file .local/signing/public.pem
+```
+
+Compose 会在 `signing-keys` 卷中维护一对不会被覆盖的签名密钥。启动完整堆栈，
+并保存其公钥作为独立信任根；不要从 signing-key API 获取验签信任根：
+
+```bash
+export AR_PROJECT=artifact-repository
+export BASE_URL=http://127.0.0.1:8080
+mkdir -p .local
+docker compose -p "$AR_PROJECT" up -d --build
+docker compose -p "$AR_PROJECT" ps
+curl --fail "$BASE_URL/readyz"
+curl --fail http://127.0.0.1:8081/readyz
+docker compose -p "$AR_PROJECT" exec -T api cat /app/keys/public.pem \
+  >.local/compose-public.pem
+```
+
+首次管理员初始化只能执行一次。请避免让返回的 Bearer Token 出现在 shell
+跟踪信息或日志中：
+
+```bash
+export ADMIN_TOKEN="$(docker compose -p "$AR_PROJECT" exec -T api \
+  /app/artifact-repository bootstrap-admin --name local-admin)"
+```
+
+创建 Repository、发布者账号、发布者 Token 和 Package。每个 JSON 写操作都必须
+携带 `Idempotency-Key`：
+
+```bash
+export RUN_ID="local-$(date +%s)"
+export REPO="repo-$RUN_ID"
+export PACKAGE=edgecli
+export EXPIRES_AT="$(date -u -d '+24 hours' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+  date -u -v+24H +%Y-%m-%dT%H:%M:%SZ)"
+
+curl --fail-with-body -sS -X POST "$BASE_URL/api/v1/repositories" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-repository" \
+  --data "$(jq -nc --arg key "$REPO" '{key:$key,displayName:"Local artifacts"}')" \
+  | jq .
+
+ACCOUNT_ID="$(curl --fail-with-body -sS -X POST "$BASE_URL/api/v1/service-accounts" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-publisher-account" \
+  --data "$(jq -nc --arg name "publisher-$RUN_ID" '{name:$name}')" | jq -r .id)"
+
+export PUBLISHER_TOKEN="$(curl --fail-with-body -sS -X POST \
+  "$BASE_URL/api/v1/service-accounts/$ACCOUNT_ID/tokens" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-publisher-token" \
+  --data "$(jq -nc --arg repo "$REPO" --arg expires "$EXPIRES_AT" \
+    '{scopes:["artifact:read","artifact:write","release:publish","channel:promote"],repositories:[$repo],expiresAt:$expires}')" \
+  | jq -r .secret)"
+
+curl --fail-with-body -sS -X POST "$BASE_URL/api/v1/repositories/$REPO/packages" \
+  -H "Authorization: Bearer $PUBLISHER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-package" \
+  --data "$(jq -nc --arg name "$PACKAGE" '{name:$name}')" | jq .
+```
+
+上传一个 Linux ARM64 二进制文件。API 会校验 `Content-Length` 和提交的
+SHA-256，校验通过后才会让不可变路径可见：
+
+```bash
+printf '\177ELFartifact-repository-linux-arm64\n' >.local/edgecli-linux-arm64
+export ARTIFACT_PATH="linux/arm64/$RUN_ID/edgecli"
+export ARTIFACT_SHA="$(openssl dgst -sha256 .local/edgecli-linux-arm64 | awk '{print $NF}')"
+
+curl --fail-with-body -sS -X PUT \
+  "$BASE_URL/api/v1/repositories/$REPO/artifacts/$ARTIFACT_PATH" \
+  -H "Authorization: Bearer $PUBLISHER_TOKEN" \
+  -H 'Content-Type: application/octet-stream' \
+  -H "X-Checksum-Sha256: $ARTIFACT_SHA" \
+  --data-binary @.local/edgecli-linux-arm64 | jq .
+```
+
+创建 Release，关联 Artifact，执行发布，并将其晋级到 `candidate`：
+
+```bash
+export VERSION=1.0.0
+export RELEASE_URL="$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/releases/$VERSION"
+
+curl --fail-with-body -sS -X POST \
+  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/releases" \
+  -H "Authorization: Bearer $PUBLISHER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-release" \
+  --data "$(jq -nc --arg version "$VERSION" '{version:$version}')" | jq .
+
+curl --fail-with-body -sS -X POST "$RELEASE_URL/artifacts" \
+  -H "Authorization: Bearer $PUBLISHER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-release-artifact" \
+  --data "$(jq -nc --arg path "$ARTIFACT_PATH" \
+    '{artifactPath:$path,os:"linux",arch:"arm64"}')" | jq .
+
+curl --fail-with-body -sS -X POST "$RELEASE_URL/publish" \
+  -H "Authorization: Bearer $PUBLISHER_TOKEN" \
+  -H "Idempotency-Key: $RUN_ID-publish" | jq .
+
+curl --fail-with-body -sS -X POST \
+  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/promotions" \
+  -H "Authorization: Bearer $PUBLISHER_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-promote" \
+  --data "$(jq -nc --arg version "$VERSION" \
+    '{version:$version,reason:"local acceptance"}')" | jq .
+```
+
+签发只读 Token，Resolve `candidate`，然后通过 API 代理下载。读者不需要获得
+MinIO 凭据、Bucket 名称或 Object Key：
+
+```bash
+READER_ID="$(curl --fail-with-body -sS -X POST "$BASE_URL/api/v1/service-accounts" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-reader-account" \
+  --data "$(jq -nc --arg name "reader-$RUN_ID" '{name:$name}')" | jq -r .id)"
+
+export READER_TOKEN="$(curl --fail-with-body -sS -X POST \
+  "$BASE_URL/api/v1/service-accounts/$READER_ID/tokens" \
+  -H "Authorization: Bearer $ADMIN_TOKEN" \
+  -H 'Content-Type: application/json' \
+  -H "Idempotency-Key: $RUN_ID-reader-token" \
+  --data "$(jq -nc --arg repo "$REPO" --arg expires "$EXPIRES_AT" \
+    '{scopes:["artifact:read"],repositories:[$repo],expiresAt:$expires}')" \
+  | jq -r .secret)"
+
+RESOLVE="$(curl --fail-with-body -sS \
+  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&redirect=false" \
+  -H "Authorization: Bearer $READER_TOKEN")"
+PROXY_PATH="$(jq -r .downloadUrl <<<"$RESOLVE")"
+curl --fail-with-body -sS "$BASE_URL$PROXY_PATH" \
+  -H "Authorization: Bearer $READER_TOKEN" -o .local/edgecli.downloaded
+test "$(openssl dgst -sha256 .local/edgecli.downloaded | awk '{print $NF}')" = \
+  "$(jq -r .artifact.sha256 <<<"$RESOLVE")"
+test "$(wc -c <.local/edgecli.downloaded | tr -d ' ')" = \
+  "$(jq -r .artifact.size <<<"$RESOLVE")"
+```
+
+使用 API 流程开始前保存的公钥，校验精确的规范化 Manifest 和 Ed25519 签名：
+
+```bash
+decode_b64url() {
+  value="$1"
+  case $((${#value} % 4)) in
+    2) value="${value}==" ;;
+    3) value="${value}=" ;;
+  esac
+  printf '%s' "$value" | tr '_-' '/+' | openssl base64 -d -A
+}
+
+MANIFEST_RESPONSE="$(curl --fail-with-body -sS "$RELEASE_URL/manifest" \
+  -H "Authorization: Bearer $READER_TOKEN")"
+decode_b64url "$(jq -r .manifest <<<"$MANIFEST_RESPONSE")" >.local/manifest.json
+decode_b64url "$(jq -r .signature <<<"$MANIFEST_RESPONSE")" >.local/manifest.sig
+test "$(openssl dgst -sha256 .local/manifest.json | awk '{print $NF}')" = \
+  "$(jq -r .manifestSha256 <<<"$MANIFEST_RESPONSE")"
+openssl pkeyutl -verify -pubin -inkey .local/compose-public.pem -rawin \
+  -in .local/manifest.json -sigfile .local/manifest.sig
+```
+
+配置 `MINIO_PUBLIC_ENDPOINT` 后，`redirect=true` 会返回一个预签名公开 URL，
+客户端无需 API 或 MinIO 凭据即可下载：
+
+```bash
+REDIRECT_RESOLVE="$(curl --fail-with-body -sS \
+  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&redirect=true" \
+  -H "Authorization: Bearer $READER_TOKEN")"
+curl --fail-with-body -sS "$(jq -r .downloadUrl <<<"$REDIRECT_RESOLVE")" \
+  -o .local/edgecli.redirected
+```
+
+## 验证
+
+除非显式启用，E2E 测试会在访问 Docker 或 HTTP 之前跳过。手动完成初始化后，
+可以复用管理员 Token：
+
+```bash
+go test ./tests/e2e -count=1 -v
+ARTIFACT_REPOSITORY_E2E=1 \
+E2E_COMPOSE_PROJECT="$AR_PROJECT" \
+E2E_ADMIN_TOKEN="$ADMIN_TOKEN" \
+E2E_PUBLIC_KEY_FILE="$PWD/.local/compose-public.pem" \
+go test ./tests/e2e -count=1 -v
+
+go test ./... -race -count=1
+go vet ./...
+test -z "$(gofmt -l .)"
+git diff --check
+```
+
+这些命令只会修改本地服务数据和文件，不会自动暂存、提交或推送 Git 变更。
+
+运维配置、Helm 安装、备份和恢复流程见
+[`docs/operations.md`](docs/operations.md)。
+
+已认证请求按 Token 分为 `read`、`mutation` 和 `upload` 三类，并使用可配置的
+限流阈值。超出阈值时返回带有 `Retry-After` 的 `429 rate-limit-exceeded`；
+默认值和环境变量见运维指南。
