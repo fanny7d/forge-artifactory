@@ -1,0 +1,22 @@
+image:
+  repository: artifact-repository
+  tag: local
+  pullPolicy: Never
+
+fullnameOverride: forge-artifactory
+
+ingress:
+  enabled: true
+  className: nginx
+  hosts:
+    - host: forge.fanchao.local
+      paths:
+        - path: /
+          pathType: Prefix
+
+config:
+  minioEndpoint: http://forge-dependencies-minio:9000
+  minioPublicEndpoint: ""
+
+signing:
+  existingSecret: forge-artifactory-signing-key

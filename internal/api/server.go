@@ -7,6 +7,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	identity "superfan.myasustor.com/fanchao/artifact-repository/internal/auth"
+	"superfan.myasustor.com/fanchao/artifact-repository/internal/dashboard"
 )
 
 type Dependencies struct {
@@ -35,6 +36,11 @@ func NewServer(dependencies Dependencies) http.Handler {
 	router.Use(requestIDMiddleware)
 	router.Get("/healthz", healthz)
 	router.Get("/readyz", readyz(dependencies.Readiness, timeout))
+	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "/dashboard/", http.StatusTemporaryRedirect)
+	})
+	router.Handle("/dashboard", http.RedirectHandler("/dashboard/", http.StatusTemporaryRedirect))
+	router.Handle("/dashboard/*", dashboard.Handler())
 	if dependencies.Metrics != nil {
 		router.Method(http.MethodGet, "/metrics", dependencies.Metrics)
 	}

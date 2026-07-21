@@ -21,6 +21,14 @@ configured `HTTP_ADDR`. Readiness checks PostgreSQL and MinIO with a bounded
 timeout. The Worker runs Blob, UploadSession, IdempotencyRecord, and publish
 recovery jobs using PostgreSQL leases.
 
+The API process also serves the embedded administration dashboard at
+`/dashboard/`; `/` redirects there. The dashboard has no separate backend or
+credential store. It calls `/api/v1` on the same origin with the Bearer Token
+provided by the operator, so normal scopes, repository restrictions, rate
+limits, idempotency, and audit behavior remain in force. Tokens are stored in
+`sessionStorage` by default and only use `localStorage` when the operator
+explicitly enables persistent login.
+
 ## Required Configuration
 
 | Variable | Sensitive | Purpose |
@@ -214,6 +222,39 @@ helm get hooks artifact-repository -n artifact-repository
 kubectl rollout status deployment/artifact-repository-artifact-repository-api \
   -n artifact-repository
 ```
+
+### Docker Desktop
+
+For a self-contained local cluster, install the development-only PostgreSQL and
+MinIO chart first, then install the application with the Docker Desktop values:
+
+```bash
+kubectl --context docker-desktop create namespace forge-artifactory
+
+helm --kube-context docker-desktop upgrade --install forge-dependencies \
+  deploy/helm/artifact-repository-local \
+  --namespace forge-artifactory \
+  --set-string postgresql.password='<random-password>' \
+  --set-string minio.secretKey='<random-secret>' \
+  --wait --wait-for-jobs
+
+helm --kube-context docker-desktop upgrade --install forge \
+  deploy/helm/artifact-repository \
+  --namespace forge-artifactory \
+  -f deploy/helm/artifact-repository/values-docker-desktop.yaml \
+  --set-string secrets.databaseURL='<postgresql-url>' \
+  --set-string secrets.minioAccessKey='artifact-minio' \
+  --set-string secrets.minioSecretKey='<same-minio-secret>' \
+  --set-string secrets.tokenPepper='<base64url-32-bytes>' \
+  --set-string secrets.idempotencyResponseKey='<base64url-32-bytes>' \
+  --wait
+```
+
+The local values use the Docker Desktop image cache (`pullPolicy: Never`), the
+`nginx` IngressClass, and `forge.fanchao.local`. Build
+`artifact-repository:local` before upgrading. The local dependency chart is not
+intended for production; its single-replica PostgreSQL and MinIO workloads use
+the cluster's default StorageClass.
 
 A failed Migration Job blocks the install or upgrade. Inspect the retained
 failed Hook Job and its logs before retrying. Do not start API or Worker with a

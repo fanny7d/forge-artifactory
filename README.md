@@ -33,6 +33,14 @@ docker compose -p "$AR_PROJECT" exec -T api cat /app/keys/public.pem \
   >.local/compose-public.pem
 ```
 
+API 启动后，可通过 [`http://127.0.0.1:8080/dashboard/`](http://127.0.0.1:8080/dashboard/)
+打开内置管理控制台。控制台使用现有 Bearer Token 登录，不创建额外会话，也不绕过
+API 的 Scope 和 Repository 权限检查。默认只在当前浏览器会话中保存 Token；只有显式
+勾选“保持登录”时才会写入浏览器本地存储。
+
+控制台首版支持仓库、Package、Release 和 Channel 浏览，制品上传，Release 发布与
+Channel 晋级，以及管理员使用的服务账号、Token 和审计日志管理。
+
 首次管理员初始化只能执行一次。请避免让返回的 Bearer Token 出现在 shell
 跟踪信息或日志中：
 
@@ -96,7 +104,7 @@ curl --fail-with-body -sS -X PUT \
   --data-binary @.local/edgecli-linux-arm64 | jq .
 ```
 
-创建 Release，关联 Artifact，执行发布，并将其晋级到 `candidate`：
+创建 Release，关联 Artifact，执行发布，并将其晋级到 `candidate`。可执行程序应显式使用 `role=binary`，以免设备端更新器误取同一 Release 中的配置或附属制品：
 
 ```bash
 export VERSION=1.0.0
@@ -114,7 +122,7 @@ curl --fail-with-body -sS -X POST "$RELEASE_URL/artifacts" \
   -H 'Content-Type: application/json' \
   -H "Idempotency-Key: $RUN_ID-release-artifact" \
   --data "$(jq -nc --arg path "$ARTIFACT_PATH" \
-    '{artifactPath:$path,os:"linux",arch:"arm64"}')" | jq .
+    '{artifactPath:$path,os:"linux",arch:"arm64",role:"binary"}')" | jq .
 
 curl --fail-with-body -sS -X POST "$RELEASE_URL/publish" \
   -H "Authorization: Bearer $PUBLISHER_TOKEN" \
@@ -128,6 +136,8 @@ curl --fail-with-body -sS -X POST \
   --data "$(jq -nc --arg version "$VERSION" \
     '{version:$version,reason:"local acceptance"}')" | jq .
 ```
+
+验收通过后，再将同一个 Release 以相同的 `version` 和可追溯 `reason` 提交到 `POST /api/v1/repositories/{repo}/packages/{package}/channels/stable/promotions`。设备端自动更新只查询 `stable` Channel，不会自动接受 `candidate`。
 
 签发只读 Token，Resolve `candidate`，然后通过 API 代理下载。读者不需要获得
 MinIO 凭据、Bucket 名称或 Object Key：
@@ -149,7 +159,7 @@ export READER_TOKEN="$(curl --fail-with-body -sS -X POST \
   | jq -r .secret)"
 
 RESOLVE="$(curl --fail-with-body -sS \
-  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&redirect=false" \
+  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&role=binary&redirect=false" \
   -H "Authorization: Bearer $READER_TOKEN")"
 PROXY_PATH="$(jq -r .downloadUrl <<<"$RESOLVE")"
 curl --fail-with-body -sS "$BASE_URL$PROXY_PATH" \
@@ -187,7 +197,7 @@ openssl pkeyutl -verify -pubin -inkey .local/compose-public.pem -rawin \
 
 ```bash
 REDIRECT_RESOLVE="$(curl --fail-with-body -sS \
-  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&redirect=true" \
+  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&role=binary&redirect=true" \
   -H "Authorization: Bearer $READER_TOKEN")"
 curl --fail-with-body -sS "$(jq -r .downloadUrl <<<"$REDIRECT_RESOLVE")" \
   -o .local/edgecli.redirected

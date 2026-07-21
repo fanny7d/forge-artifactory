@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 )
 
@@ -98,5 +99,26 @@ func TestMetricsEndpointUsesConfiguredHandler(t *testing.T) {
 	}
 	if response.Body.String() != "artifact_repository_uploads_total 1\n" {
 		t.Fatalf("metrics body = %q", response.Body.String())
+	}
+}
+
+func TestDashboardRoutesAreServedWithoutAPIAuthentication(t *testing.T) {
+	handler := NewServer(Dependencies{Readiness: &readinessProbe{}})
+
+	rootRequest := httptest.NewRequest(http.MethodGet, "/", nil)
+	rootResponse := httptest.NewRecorder()
+	handler.ServeHTTP(rootResponse, rootRequest)
+	if rootResponse.Code != http.StatusTemporaryRedirect || rootResponse.Header().Get("Location") != "/dashboard/" {
+		t.Fatalf("root response = status %d location %q", rootResponse.Code, rootResponse.Header().Get("Location"))
+	}
+
+	dashboardRequest := httptest.NewRequest(http.MethodGet, "/dashboard/", nil)
+	dashboardResponse := httptest.NewRecorder()
+	handler.ServeHTTP(dashboardResponse, dashboardRequest)
+	if dashboardResponse.Code != http.StatusOK {
+		t.Fatalf("dashboard status = %d, want 200", dashboardResponse.Code)
+	}
+	if !strings.Contains(dashboardResponse.Body.String(), "Forge Artifactory") {
+		t.Fatal("dashboard response does not contain application title")
 	}
 }
