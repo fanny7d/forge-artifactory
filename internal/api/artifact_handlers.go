@@ -332,4 +332,11 @@ func setArtifactHeaders(w http.ResponseWriter, metadata artifactdomain.Metadata)
 	w.Header().Set("ETag", `"`+metadata.SHA256+`"`)
 	w.Header().Set("X-Checksum-Sha256", metadata.SHA256)
 	w.Header().Set("X-Created-At", metadata.CreatedAt.Format(time.RFC3339Nano))
+	// Artifact bytes are supplied by repository publishers. Always force a download
+	// so publisher-controlled media types (for example text/html) cannot execute in
+	// this application's origin.
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{
+		"filename": metadata.Filename,
+	}))
+	w.Header().Set("X-Content-Type-Options", "nosniff")
 }

@@ -96,6 +96,8 @@ func TestChecksumDeployAndHeadArtifactMapHeaders(t *testing.T) {
 func TestGetArtifactUsesServeContentForRangesAndRedirects(t *testing.T) {
 	authenticator := &identityServiceStub{actor: adminAPIActor()}
 	metadata := apiArtifactMetadata()
+	metadata.Filename = "payload.html"
+	metadata.MediaType = "text/html"
 	content := []byte("abcdefg")
 	seekable := &seekReadCloser{Reader: bytes.NewReader(content)}
 	multipartSeekable := &seekReadCloser{Reader: bytes.NewReader(content)}
@@ -124,6 +126,12 @@ func TestGetArtifactUsesServeContentForRangesAndRedirects(t *testing.T) {
 	}
 	if proxyResponse.Header().Get("Content-Range") != "bytes 1-3/7" {
 		t.Fatalf("Content-Range = %q", proxyResponse.Header().Get("Content-Range"))
+	}
+	if proxyResponse.Header().Get("Content-Disposition") != "attachment; filename=payload.html" {
+		t.Fatalf("Content-Disposition = %q", proxyResponse.Header().Get("Content-Disposition"))
+	}
+	if proxyResponse.Header().Get("X-Content-Type-Options") != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q", proxyResponse.Header().Get("X-Content-Type-Options"))
 	}
 
 	multipart := httptest.NewRequest(http.MethodGet, "/api/v1/repositories/source/artifacts/linux/arm64/edgecli?redirect=false", nil)
