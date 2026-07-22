@@ -38,6 +38,17 @@ API 启动后，可通过 [`http://127.0.0.1:8080/dashboard/`](http://127.0.0.1:
 API 的 Scope 和 Repository 权限检查。默认只在当前浏览器会话中保存 Token；只有显式
 勾选“保持登录”时才会写入浏览器本地存储。
 
+终端用户可以使用 `artifactctl` 上传、下载和查看制品，或验证签名后从 Channel 拉取
+匹配平台的 Release。构建、认证和命令示例见 [`docs/cli.md`](docs/cli.md)：
+
+```bash
+mkdir -p ./bin
+go build -o ./bin/artifactctl ./cmd/artifactctl
+export ARTIFACT_REPOSITORY_URL=http://127.0.0.1:8080
+export ARTIFACT_REPOSITORY_TOKEN='ar1...'
+./bin/artifactctl upload ./dist/edgecli releases/linux/arm64/edgecli
+```
+
 控制台首版支持仓库、Package、Release 和 Channel 浏览，制品上传，Release 发布与
 Channel 晋级，以及管理员使用的服务账号、Token 和审计日志管理。
 
