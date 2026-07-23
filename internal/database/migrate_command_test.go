@@ -24,8 +24,8 @@ func TestMigrateCommandIsRepeatableAndProducesExpectedSchemaVersion(t *testing.T
 	if err != nil {
 		t.Fatalf("SchemaVersions() error = %v", err)
 	}
-	if current != expected || expected != 1 {
-		t.Fatalf("schema versions = current %d expected %d, want 1/1", current, expected)
+	if current != expected || expected != 2 {
+		t.Fatalf("schema versions = current %d expected %d, want 2/2", current, expected)
 	}
 }
 

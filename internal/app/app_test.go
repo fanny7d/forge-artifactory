@@ -19,6 +19,7 @@ import (
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/database"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/metrics"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/ratelimit"
+	"superfan.myasustor.com/fanchao/artifact-repository/internal/storage"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/testenv"
 )
 
@@ -176,6 +177,18 @@ func TestNewRateLimiterUsesConfiguredBurstAndUploadConcurrency(t *testing.T) {
 		t.Fatalf("second upload decision = %+v, want concurrency denial", decision)
 	}
 	upload.Release()
+}
+
+func TestNewStorageSelectsFilesystemBackend(t *testing.T) {
+	store, err := newStorage(config.Config{
+		FilesystemRoot: t.TempDir(),
+	})
+	if err != nil {
+		t.Fatalf("newStorage() error = %v", err)
+	}
+	if _, ok := store.(*storage.Filesystem); !ok {
+		t.Fatalf("newStorage() type = %T, want *storage.Filesystem", store)
+	}
 }
 
 func TestRefreshWorkerMetricsReportsBacklogAndStagingAge(t *testing.T) {

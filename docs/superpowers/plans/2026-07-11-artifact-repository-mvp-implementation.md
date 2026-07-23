@@ -10,12 +10,12 @@ acceptance tests.
 
 **Architecture:** One Go modular monolith exposes api, worker,
 bootstrap-admin, and keygen subcommands. PostgreSQL is the transactional
-source of truth; MinIO stores content-addressed bytes. Domain services own
+source of truth; a persistent filesystem stores content-addressed bytes. Domain services own
 transactions and call narrow storage, signer, clock, and ID interfaces so
 unit tests exercise real behavior without HTTP or database mocks.
 
-**Tech Stack:** Go 1.26.2, chi v5, pgx/v5, sqlc, goose, MinIO Go SDK v7,
-Prometheus client_golang, OpenAPI 3.1, PostgreSQL 17, MinIO, Docker Compose,
+**Tech Stack:** Go 1.26.2, chi v5, pgx/v5, sqlc, goose,
+Prometheus client_golang, OpenAPI 3.1, PostgreSQL 17, Docker Compose,
 Helm 3.
 
 ## Global Constraints
@@ -23,7 +23,7 @@ Helm 3.
 - Module path: superfan.myasustor.com/fanchao/artifact-repository.
 - ASCII source by default; API JSON and documentation may contain UTF-8.
 - No ORM or dependency-injection framework.
-- HTTP handlers never execute SQL or call MinIO directly.
+- HTTP handlers never execute SQL or operate on storage files directly.
 - All database and external-I/O contexts have explicit timeouts.
 - Production code is written only after its focused test has failed for the
   expected missing behavior.
@@ -82,12 +82,11 @@ Expected: FAIL because Load and NewServer do not exist.
 
 - [ ] **Step 3: Implement typed environment parsing and the chi skeleton**
 
-Config includes DATABASE_URL, MINIO_ENDPOINT, MINIO_PUBLIC_ENDPOINT,
-MINIO_ACCESS_KEY, MINIO_SECRET_KEY, MINIO_BUCKET, TOKEN_PEPPER,
+Config includes DATABASE_URL, FILESYSTEM_ROOT, TOKEN_PEPPER,
 IDEMPOTENCY_RESPONSE_KEY, SIGNING_PRIVATE_KEY_FILE,
 SIGNING_PUBLIC_KEY_FILE, HTTP_ADDR, and documented duration/size defaults.
 healthz returns 200 without dependency access; readyz calls bounded PostgreSQL
-and MinIO probes supplied through interfaces.
+and filesystem probes supplied through interfaces.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -345,8 +344,8 @@ Expected: PASS.
 - Create: internal/blob/service.go
 - Create: internal/blob/service_test.go
 - Create: internal/storage/storage.go
-- Create: internal/storage/minio.go
-- Create: internal/storage/minio_test.go
+- Create: internal/storage/filesystem.go
+- Create: internal/storage/filesystem_test.go
 - Create: internal/api/artifact_handlers.go
 
 **Interfaces:**
@@ -382,7 +381,7 @@ Expected: PASS.
 
 Tests prove only ready Blobs gain references, deleting rejects writers,
 expired creating ownership can be reclaimed, checksum deploy requires visible
-source read access, and a database failure after MinIO promotion never exposes
+source read access, and a database failure after filesystem promotion never exposes
 an Artifact.
 
 Run: go test ./internal/blob ./internal/artifact -run 'Test(Blob|Upload|Checksum)' -v
@@ -393,14 +392,13 @@ Expected: FAIL because state-machine methods are missing.
 Use io.LimitReader plus one-byte overflow detection, require Content-Length,
 hash while streaming, refresh the two-minute lease every 30 seconds, enforce a
 12-hour hard deadline, promote staging only after claiming creating ownership,
-and create Artifact only after Blob is ready. Internal object I/O uses
-MINIO_ENDPOINT; a separate SigV4 client signs MINIO_PUBLIC_ENDPOINT. Without a
-public endpoint, redirects are disabled and downloads default to proxy mode.
+and create Artifact only after Blob is ready. Storage uses one persistent
+filesystem root; redirects are disabled and downloads use proxy mode.
 
 - [ ] **Step 6: Implement GET, HEAD, metadata, Range proxying, and 307 presigning**
 
-The proxy path forwards single and multipart Range semantics from MinIO,
-preserves Content-Type/Length/Range, and never logs the raw presigned URL.
+The proxy path forwards single and multipart Range semantics from the
+filesystem store and preserves Content-Type/Length/Range.
 
 - [ ] **Step 7: Verify GREEN**
 
@@ -466,7 +464,7 @@ go test ./internal/release -run TestExpiredPublisherCannotFinalize -v
 Expected: FAIL.
 
 Classify deterministic validation failures before creating an Attempt; keep
-transient PostgreSQL/MinIO failures pending for recovery; roll back to draft
+transient PostgreSQL/filesystem failures pending for recovery; roll back to draft
 after ten retries only when both output objects are proven absent; otherwise
 enter publish_failed. Tests cover every classification, persisted failure code,
 backoff cap, and completion of the linked IdempotencyRecord.
@@ -534,8 +532,8 @@ Expected: PASS.
 - [ ] **Step 1: Write failing cleaner race tests**
 
 Tests coordinate goroutines with channels, not sleeps: Cleaner marks a Blob
-deleting, a writer attempts a reference and receives retryable conflict, MinIO
-deletion completes, and no visible Artifact references the missing object.
+deleting, a writer attempts a reference and receives retryable conflict,
+filesystem deletion completes, and no visible Artifact references the missing object.
 
 - [ ] **Step 2: Verify RED**
 
@@ -545,12 +543,12 @@ Expected: FAIL because cleanup is missing.
 - [ ] **Step 3: Implement SKIP LOCKED leasing, deletion tombstones, and retries**
 
 Every Job claim uses FOR UPDATE SKIP LOCKED and a bounded lease. Cleanup marks
-database state before MinIO deletion. Publish recovery increments generation,
+database state before filesystem deletion. Publish recovery increments generation,
 rebuilds only from the persisted snapshot, and completes the associated
 IdempotencyRecord. Upload cleanup deletes staging only after both Lease and
 hard deadline expire. Idempotency cleanup removes completed and recovered
 encrypted responses after 24 hours. Tests cover all three retention paths and
-retries after MinIO deletion failures.
+retries after filesystem deletion failures.
 
 - [ ] **Step 4: Verify GREEN**
 
@@ -650,7 +648,7 @@ rejections.
 - [ ] **Step 2: Start the real stack**
 
 Run: docker compose up -d --build
-Expected: PostgreSQL, MinIO, API, and Worker become healthy.
+Expected: PostgreSQL, API, and Worker become healthy.
 
 - [ ] **Step 3: Run E2E and fault-injection cases**
 

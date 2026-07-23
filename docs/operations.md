@@ -17,9 +17,9 @@ artifact-repository keygen --private-key-file <path> --public-key-file <path>
 database and binary do not contain exactly the same migration versions.
 
 Both `api` and `worker` expose `/healthz`, `/readyz`, and `/metrics` on their
-configured `HTTP_ADDR`. Readiness checks PostgreSQL and MinIO with a bounded
-timeout. The Worker runs Blob, UploadSession, IdempotencyRecord, and publish
-recovery jobs using PostgreSQL leases.
+configured `HTTP_ADDR`. Readiness checks PostgreSQL and the selected storage
+backend with a bounded timeout. The Worker runs Blob, UploadSession,
+IdempotencyRecord, and publish recovery jobs using PostgreSQL leases.
 
 The API process also serves the embedded administration dashboard at
 `/dashboard/`; `/` redirects there. The dashboard has no separate backend or
@@ -34,11 +34,7 @@ explicitly enables persistent login.
 | Variable | Sensitive | Purpose |
 |---|---:|---|
 | `DATABASE_URL` | yes | PostgreSQL connection URL |
-| `MINIO_ENDPOINT` | no | Internal MinIO origin used for object I/O |
-| `MINIO_PUBLIC_ENDPOINT` | no | Optional client-reachable origin used to sign redirect URLs |
-| `MINIO_ACCESS_KEY` | yes | MinIO access key |
-| `MINIO_SECRET_KEY` | yes | MinIO secret key |
-| `MINIO_BUCKET` | no | Existing artifact bucket |
+| `FILESYSTEM_ROOT` | no | Absolute persistent storage path |
 | `TOKEN_PEPPER` | yes | Raw base64url encoding of exactly 32 random bytes |
 | `IDEMPOTENCY_RESPONSE_KEY` | yes | Independent raw base64url encoding of exactly 32 random bytes |
 | `SIGNING_PRIVATE_KEY_FILE` | yes | PKCS#8 Ed25519 private PEM, mode `0600` or stricter |
@@ -53,9 +49,8 @@ explicitly enables persistent login.
 | `RATE_LIMIT_UPLOAD_CONCURRENCY` | no | Simultaneous uploads per Token, default `4` |
 | `RATE_LIMIT_IDLE_TTL` | no | Idle bucket retention, default `15m` |
 
-When `MINIO_PUBLIC_ENDPOINT` is empty, redirects are disabled and downloads
-remain proxied through the API. Do not rewrite the host of a presigned URL;
-the host is part of the SigV4 signature.
+Filesystem storage never produces public URLs, so downloads remain proxied
+through the authenticated API.
 
 Generate independent application keys with a secret manager or:
 
@@ -63,7 +58,7 @@ Generate independent application keys with a secret manager or:
 openssl rand -base64 32 | tr '+/' '-_' | tr -d '='
 ```
 
-Do not reuse either application key as a MinIO or PostgreSQL credential.
+Do not reuse either application key as a PostgreSQL credential.
 
 All authenticated requests are limited after successful Token authentication.
 Exceeded limits return RFC 9457 code `rate-limit-exceeded`, HTTP `429`, and an
@@ -73,14 +68,12 @@ state before enabling overlapping or multiple API processes.
 
 ## Docker Compose
 
-The development stack contains PostgreSQL 17, MinIO, a bucket initializer, a
+The development stack contains PostgreSQL 17, a shared filesystem volume, a
 signing-key initializer, a one-shot migration service, API, and Worker.
 
 Override the development credentials before using a shared machine:
 
 ```bash
-export MINIO_ACCESS_KEY='artifact-minio'
-export MINIO_SECRET_KEY='replace-with-a-long-random-secret'
 export TOKEN_PEPPER="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
 export IDEMPOTENCY_RESPONSE_KEY="$(openssl rand -base64 32 | tr '+/' '-_' | tr -d '=')"
 docker compose up -d --build
@@ -153,18 +146,22 @@ E2E_PUBLIC_KEY_FILE="$PWD/.local/compose-public.pem" \
 go test ./tests/e2e -count=1 -v
 ```
 
+默认验收流程覆盖 filesystem 的代理下载和显式重定向拒绝。
+
 On a fresh stack, omit `E2E_ADMIN_TOKEN` and the harness performs the one
 allowed bootstrap itself. Do not omit it after any ServiceAccount exists.
 
-`docker compose down -v` permanently deletes the local PostgreSQL, MinIO, and
-signing-key volumes. Use it only when intentionally resetting development.
+`docker compose down -v` permanently deletes the local PostgreSQL,
+`artifact-data`, and signing-key volumes. Use it only when intentionally
+resetting development.
 
 ## Helm
 
 The chart is under `deploy/helm/artifact-repository`. It runs migrations as a
 blocking `pre-install,pre-upgrade` Hook. API is fixed at one replica for the
 MVP because request limiting is process-local. Worker coordination is fenced
-in PostgreSQL.
+in PostgreSQL. In filesystem mode, API and Worker run as containers in the same
+Pod and share one RWO PVC; this is intentionally a single-node storage design.
 
 Generate the signing pair outside the cluster:
 
@@ -189,13 +186,11 @@ For production, create the runtime Secret separately:
 ```bash
 kubectl -n artifact-repository create secret generic artifact-repository-runtime \
   --from-literal=DATABASE_URL='postgresql://...' \
-  --from-literal=MINIO_ACCESS_KEY='...' \
-  --from-literal=MINIO_SECRET_KEY='...' \
   --from-literal=TOKEN_PEPPER='...' \
   --from-literal=IDEMPOTENCY_RESPONSE_KEY='...'
 ```
 
-Install with the pre-existing Secret and deployment-specific MinIO origins:
+Install with the pre-existing Secret and a new 100 GiB filesystem PVC:
 
 ```bash
 helm upgrade --install artifact-repository deploy/helm/artifact-repository \
@@ -205,9 +200,13 @@ helm upgrade --install artifact-repository deploy/helm/artifact-repository \
   --set secrets.create=false \
   --set secrets.existingSecret=artifact-repository-runtime \
   --set signing.existingSecret=artifact-repository-signing-key \
-  --set config.minioEndpoint=http://minio.storage.svc:9000 \
-  --set config.minioPublicEndpoint=https://artifacts.example.com
+  --set storage.filesystem.persistence.size=100Gi
 ```
+
+Set `storage.filesystem.persistence.existingClaim` instead when a prepared PVC
+already exists. The generated PVC has `helm.sh/resource-policy: keep`; removing
+the release does not authorize deleting artifact bytes. Filesystem mode rejects
+`api.replicaCount` or `worker.replicaCount` values other than one.
 
 If `secrets.create=true`, replace every `CHANGE_ME` value in a protected values
 file. The Migration Hook reads `secrets.databaseURL` directly because normal
@@ -225,8 +224,8 @@ kubectl rollout status deployment/artifact-repository-artifact-repository-api \
 
 ### Docker Desktop
 
-For a self-contained local cluster, install the development-only PostgreSQL and
-MinIO chart first, then install the application with the Docker Desktop values:
+For a self-contained local cluster, install the development-only PostgreSQL
+chart first, then install the application with the Docker Desktop values:
 
 ```bash
 kubectl --context docker-desktop create namespace forge-artifactory
@@ -235,16 +234,13 @@ helm --kube-context docker-desktop upgrade --install forge-dependencies \
   deploy/helm/artifact-repository-local \
   --namespace forge-artifactory \
   --set-string postgresql.password='<random-password>' \
-  --set-string minio.secretKey='<random-secret>' \
-  --wait --wait-for-jobs
+  --wait
 
 helm --kube-context docker-desktop upgrade --install forge \
   deploy/helm/artifact-repository \
   --namespace forge-artifactory \
   -f deploy/helm/artifact-repository/values-docker-desktop.yaml \
   --set-string secrets.databaseURL='<postgresql-url>' \
-  --set-string secrets.minioAccessKey='artifact-minio' \
-  --set-string secrets.minioSecretKey='<same-minio-secret>' \
   --set-string secrets.tokenPepper='<base64url-32-bytes>' \
   --set-string secrets.idempotencyResponseKey='<base64url-32-bytes>' \
   --wait
@@ -253,12 +249,30 @@ helm --kube-context docker-desktop upgrade --install forge \
 The local values use the Docker Desktop image cache (`pullPolicy: Never`), the
 `nginx` IngressClass, and `forge.fanchao.local`. Build
 `artifact-repository:local` before upgrading. The local dependency chart is not
-intended for production; its single-replica PostgreSQL and MinIO workloads use
-the cluster's default StorageClass.
+intended for production; its single-replica PostgreSQL workload and the
+application's filesystem PVC use the cluster's default StorageClass. The local
+Ingress annotations raise nginx's request body limit to the repository's 10 GiB
+default and extend proxy timeouts, so large CLI binaries are not rejected by the
+controller before reaching the API.
 
 A failed Migration Job blocks the install or upgrade. Inspect the retained
 failed Hook Job and its logs before retrying. Do not start API or Worker with a
 schema mismatch.
+
+## Filesystem Storage
+
+`FILESYSTEM_ROOT` must be a dedicated, persistent POSIX filesystem. The store
+creates staging objects with exclusive creation, syncs completed writes, and
+promotes a staging file to its content-addressed path with an atomic hard link
+that never overwrites an existing Blob. Staging and final paths must therefore
+remain on the same filesystem, and the volume must support hard links and
+directory `fsync`.
+
+Do not use a container writable layer, `emptyDir`, or independent per-Pod
+volumes. Monitor capacity and inode usage. A local PVC does not provide node
+failure tolerance: keep a tested backup on another machine or storage system.
+Do not enable multiple API Pods, cross-node Workers, direct-download URLs, or
+multi-site operation with this storage model.
 
 ## Metrics And Alerts
 
@@ -269,7 +283,7 @@ tokens. The endpoint includes:
 - download, Resolve, publish, and promotion results;
 - Blob deduplication hit/miss and signing failure code;
 - oldest pending staging age and Job backlog by fixed Job kind;
-- PostgreSQL and MinIO request count and duration.
+- PostgreSQL and selected-storage request count and duration.
 
 Set `monitoring.prometheusRule.enabled=true` when the Prometheus Operator CRDs
 are installed. The optional rules alert on dependency failures, staging data
@@ -277,14 +291,19 @@ older than 24 hours, and signing failures.
 
 ## Backup And Recovery
 
-Back up PostgreSQL and the MinIO bucket as one recovery set. PostgreSQL is the
-source of truth for visible resources, while MinIO contains immutable bytes.
+Back up PostgreSQL and the filesystem root (or configured object-storage bucket)
+as one recovery set. PostgreSQL is the source of truth for visible resources,
+while storage contains immutable bytes.
 Also back up the signing private key and both application encryption keys in a
 separate secret system.
 
+For the simplest consistent filesystem backup, pause API and Worker, snapshot
+or copy PostgreSQL and the filesystem root, then resume them. RAID and a second
+directory on the same node are not backups.
+
 After restore:
 
-1. Restore PostgreSQL, MinIO, and the original signing key.
+1. Restore PostgreSQL, storage bytes, and the original signing key.
 2. Run `artifact-repository migrate` exactly once for the deployment.
 3. Start API and Worker and require `/readyz` to return `200`.
 4. Resolve and download a known release, verify its SHA-256, and verify the
@@ -300,9 +319,8 @@ under the old Key ID.
   command; do not bypass the check.
 - `private key must be ... mode 0600`: correct ownership/mode or use the chart's
   key preparation initContainer.
-- `public endpoint is unavailable`: configure `MINIO_PUBLIC_ENDPOINT` or request
-  proxy downloads.
-- `/readyz` returns `503`: check both PostgreSQL and the configured MinIO bucket;
+- `public endpoint is unavailable`: request proxy downloads with `redirect=false`.
+- `/readyz` returns `503`: check PostgreSQL and the configured storage root;
   `/healthz` only proves that the process is alive.
 - bootstrap reports an existing administrator: issue additional accounts and
   tokens through the authenticated API; never delete the bootstrap record to

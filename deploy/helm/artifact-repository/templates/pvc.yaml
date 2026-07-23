@@ -1,0 +1,20 @@
+{{- if not .Values.storage.filesystem.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "artifact-repository.storageClaimName" . }}
+  annotations:
+    helm.sh/resource-policy: keep
+  labels:
+    {{- include "artifact-repository.labels" . | nindent 4 }}
+    app.kubernetes.io/component: storage
+spec:
+  accessModes:
+    {{- toYaml .Values.storage.filesystem.persistence.accessModes | nindent 4 }}
+  {{- with .Values.storage.filesystem.persistence.storageClassName }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ required "storage.filesystem.persistence.size is required" .Values.storage.filesystem.persistence.size }}
+{{- end }}

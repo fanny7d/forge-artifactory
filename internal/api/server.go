@@ -21,6 +21,7 @@ type Dependencies struct {
 	Repositories     RepositoryService
 	Artifacts        ArtifactService
 	Packages         PackageService
+	Products         ProductService
 	Drafts           DraftService
 	Publisher        ReleasePublisher
 	Channels         ChannelService
@@ -41,6 +42,14 @@ func NewServer(dependencies Dependencies) http.Handler {
 	})
 	router.Handle("/dashboard", http.RedirectHandler("/dashboard/", http.StatusTemporaryRedirect))
 	router.Handle("/dashboard/*", dashboard.Handler())
+	registerInstallRoutes(
+		router,
+		dependencies.Products,
+		dependencies.Channels,
+		dependencies.Drafts,
+		dependencies.Artifacts,
+		dependencies.RateLimiter,
+	)
 	if dependencies.Metrics != nil {
 		router.Method(http.MethodGet, "/metrics", dependencies.Metrics)
 	}
@@ -57,6 +66,7 @@ func NewServer(dependencies Dependencies) http.Handler {
 			registerRepositoryRoutes(router, dependencies.Repositories)
 			registerArtifactRoutes(router, dependencies.Artifacts)
 			registerPackageRoutes(router, dependencies.Packages)
+			registerProductRoutes(router, dependencies.Products)
 			registerDraftRoutes(router, dependencies.Drafts)
 			registerPublishRoutes(router, dependencies.Publisher)
 			registerChannelRoutes(router, dependencies.Channels)

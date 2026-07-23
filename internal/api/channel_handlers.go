@@ -9,6 +9,7 @@ import (
 
 	identity "superfan.myasustor.com/fanchao/artifact-repository/internal/auth"
 	channeldomain "superfan.myasustor.com/fanchao/artifact-repository/internal/channel"
+	releasedomain "superfan.myasustor.com/fanchao/artifact-repository/internal/release"
 )
 
 type ChannelService interface {
@@ -45,7 +46,7 @@ func (h channelHandlers) promote(w http.ResponseWriter, r *http.Request) {
 		writeHandlerError(w, r, err)
 		return
 	}
-	if !validVersion.MatchString(body.Version) || len(body.Reason) < 1 || len(body.Reason) > 512 {
+	if !releasedomain.ValidVersion(body.Version) || len(body.Reason) < 1 || len(body.Reason) > 512 {
 		writeHandlerError(w, r, channeldomain.ErrInvalidRequest)
 		return
 	}

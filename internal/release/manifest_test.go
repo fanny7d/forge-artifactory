@@ -2,6 +2,9 @@ package release
 
 import (
 	"bytes"
+	"encoding/json"
+	"errors"
+	"strings"
 	"testing"
 	"time"
 )
@@ -53,5 +56,147 @@ func TestBuildManifestRejectsDuplicateCoordinates(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("BuildManifest() accepted duplicate platform coordinates")
+	}
+}
+
+func TestBuildManifestV2IncludesProductAndInstallPlan(t *testing.T) {
+	t.Parallel()
+	manifest, err := BuildManifest(PublishSnapshot{
+		Repository:  "cli-releases",
+		Package:     "edgectl",
+		Product:     &SnapshotProduct{Slug: "edgectl", Command: "edgectl"},
+		Version:     "1.2.3",
+		PublishedAt: time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC),
+		Artifacts: []SnapshotArtifact{{
+			Path: "edgectl/1.2.3/linux/arm64/edgectl", Filename: "edgectl",
+			OS: "linux", Arch: "arm64", Role: "binary", MediaType: "application/octet-stream",
+			SHA256: strings.Repeat("a", 64), Size: 42,
+			Install: &InstallSpec{Strategy: InstallStrategySelfReplace, Format: InstallFormatRaw, Mode: "0755"},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(manifest, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document["schemaVersion"] != float64(2) {
+		t.Fatalf("schemaVersion = %#v, want 2", document["schemaVersion"])
+	}
+	product, ok := document["product"].(map[string]any)
+	if !ok || product["slug"] != "edgectl" || product["command"] != "edgectl" {
+		t.Fatalf("product = %#v", document["product"])
+	}
+}
+
+func TestBuildManifestV2RequiresInstallSpecForEveryArtifact(t *testing.T) {
+	t.Parallel()
+	_, err := BuildManifest(PublishSnapshot{
+		Repository:  "cli-releases",
+		Package:     "edgectl",
+		Product:     &SnapshotProduct{Slug: "edgectl", Command: "edgectl"},
+		Version:     "1.2.3",
+		PublishedAt: time.Now(),
+		Artifacts: []SnapshotArtifact{{
+			Path: "edgectl", Filename: "edgectl", OS: "linux", Arch: "arm64", Role: "binary",
+			MediaType: "application/octet-stream", SHA256: strings.Repeat("a", 64), Size: 1,
+		}},
+	})
+	if !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("BuildManifest() error = %v, want ErrInvalidSnapshot", err)
+	}
+}
+
+func TestBuildManifestV2RequiresBinaryRoleForEveryArtifact(t *testing.T) {
+	t.Parallel()
+	for _, testCase := range []struct {
+		name string
+		role string
+	}{
+		{name: "missing", role: ""},
+		{name: "non-binary", role: "metadata"},
+	} {
+		testCase := testCase
+		t.Run(testCase.name, func(t *testing.T) {
+			t.Parallel()
+			_, err := BuildManifest(PublishSnapshot{
+				Repository:  "cli-releases",
+				Package:     "edgectl",
+				Product:     &SnapshotProduct{Slug: "edgectl", Command: "edgectl"},
+				Version:     "1.2.3",
+				PublishedAt: time.Now(),
+				Artifacts: []SnapshotArtifact{{
+					Path: "edgectl", Filename: "edgectl", OS: "linux", Arch: "arm64", Role: testCase.role,
+					MediaType: "application/octet-stream", SHA256: strings.Repeat("a", 64), Size: 1,
+					Install: &InstallSpec{Strategy: InstallStrategySelfReplace, Format: InstallFormatRaw, Mode: "0755"},
+				}},
+			})
+			if !errors.Is(err, ErrInvalidSnapshot) {
+				t.Fatalf("BuildManifest() role %q error = %v, want ErrInvalidSnapshot", testCase.role, err)
+			}
+		})
+	}
+}
+
+func TestBuildManifestV2RejectsInvalidInstallSpec(t *testing.T) {
+	t.Parallel()
+	_, err := BuildManifest(PublishSnapshot{
+		Repository:  "cli-releases",
+		Package:     "edgectl",
+		Product:     &SnapshotProduct{Slug: "edgectl", Command: "edgectl"},
+		Version:     "1.2.3",
+		PublishedAt: time.Now(),
+		Artifacts: []SnapshotArtifact{{
+			Path: "edgectl", Filename: "edgectl", OS: "linux", Arch: "arm64", Role: "binary",
+			MediaType: "application/octet-stream", SHA256: strings.Repeat("a", 64), Size: 1,
+			Install: &InstallSpec{Strategy: InstallStrategySelfReplace, Format: InstallFormatRaw, Mode: "0644"},
+		}},
+	})
+	if !errors.Is(err, ErrInvalidSnapshot) {
+		t.Fatalf("BuildManifest() error = %v, want ErrInvalidSnapshot", err)
+	}
+}
+
+func TestBuildManifestV1KeepsNonProductRoles(t *testing.T) {
+	t.Parallel()
+	manifest, err := BuildManifest(PublishSnapshot{
+		Repository:  "releases",
+		Package:     "metadata",
+		Version:     "1.2.3",
+		PublishedAt: time.Date(2026, 7, 23, 9, 0, 0, 0, time.UTC),
+		Artifacts: []SnapshotArtifact{{
+			Path: "metadata.json", Filename: "metadata.json", OS: "any", Arch: "any", Role: "metadata",
+			MediaType: "application/json", SHA256: strings.Repeat("a", 64), Size: 1,
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildManifest() rejected a legacy non-product role: %v", err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(manifest, &document); err != nil {
+		t.Fatal(err)
+	}
+	if document["schemaVersion"] != float64(1) {
+		t.Fatalf("schemaVersion = %#v, want 1", document["schemaVersion"])
+	}
+}
+
+func TestBuildManifestV2AcceptsProductCommandNameContract(t *testing.T) {
+	t.Parallel()
+	_, err := BuildManifest(PublishSnapshot{
+		Repository:  "cli-releases",
+		Package:     "x-cli",
+		Product:     &SnapshotProduct{Slug: "x-cli", Command: "X"},
+		Version:     "1.2.3",
+		PublishedAt: time.Now(),
+		Artifacts: []SnapshotArtifact{{
+			Path: "x-cli", Filename: "X", OS: "linux", Arch: "amd64", Role: "binary",
+			MediaType: "application/octet-stream", SHA256: strings.Repeat("a", 64), Size: 1,
+			Install: &InstallSpec{Strategy: InstallStrategySelfReplace, Format: InstallFormatRaw, Mode: "0755"},
+		}},
+	})
+	if err != nil {
+		t.Fatalf("BuildManifest() rejected a valid command name: %v", err)
 	}
 }

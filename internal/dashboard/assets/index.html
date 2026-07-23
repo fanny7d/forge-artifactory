@@ -11,9 +11,9 @@
   <div id="login-view" class="login-view">
     <main class="login-panel">
       <div class="brand-mark" aria-hidden="true">FA</div>
-      <p class="eyebrow">制品仓库管理控制台</p>
+      <p class="eyebrow">CLI 版本发布中心</p>
       <h1>Forge Artifactory</h1>
-      <p class="login-copy">使用 API Token 连接当前实例。</p>
+      <p class="login-copy">连接当前实例，管理 CLI 版本与多平台制品。</p>
       <form id="login-form" class="form-stack">
         <label for="token">Bearer Token</label>
         <div class="secret-field">
@@ -35,13 +35,10 @@
     <aside class="sidebar">
       <div class="brand-block">
         <div class="brand-mark small" aria-hidden="true">FA</div>
-        <div><strong>Forge</strong><span>Artifactory</span></div>
+        <div><strong>Forge</strong><span>CLI Releases</span></div>
       </div>
       <nav id="primary-nav" class="primary-nav" aria-label="主导航">
-        <a href="#/overview" data-route="overview"><span class="nav-symbol">▦</span>总览</a>
-        <a href="#/repositories" data-route="repositories"><span class="nav-symbol">◇</span>仓库</a>
-        <a href="#/accounts" data-route="accounts"><span class="nav-symbol">◎</span>服务账号</a>
-        <a href="#/audit" data-route="audit"><span class="nav-symbol">≡</span>审计日志</a>
+        <a href="#/products" data-route="products">CLI 制品库</a>
       </nav>
       <div class="sidebar-footer">
         <div class="health-line"><span id="health-dot" class="status-dot"></span><span id="health-text">检查中</span></div>
@@ -52,8 +49,8 @@
     <section class="workspace">
       <header class="topbar">
         <div>
-          <p id="breadcrumb" class="breadcrumb">控制台</p>
-          <h1 id="page-title">总览</h1>
+          <p id="breadcrumb" class="breadcrumb">Forge</p>
+          <h1 id="page-title">CLI 制品库</h1>
         </div>
         <div id="page-actions" class="page-actions"></div>
       </header>

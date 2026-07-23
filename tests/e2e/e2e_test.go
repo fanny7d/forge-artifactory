@@ -38,7 +38,7 @@ func TestArtifactRepositoryMVP(t *testing.T) {
 	project := environmentOrDefault("E2E_COMPOSE_PROJECT", "artifact-repository")
 	baseURL := environmentOrDefault("E2E_BASE_URL", "http://127.0.0.1:8080")
 	workerURL := environmentOrDefault("E2E_WORKER_URL", "http://127.0.0.1:8081")
-	publicEndpoint := environmentOrDefault("E2E_PUBLIC_ENDPOINT", "http://localhost:9000")
+	publicEndpoint := strings.TrimSpace(os.Getenv("E2E_PUBLIC_ENDPOINT"))
 
 	client, err := newAPIClient(baseURL)
 	if err != nil {
@@ -512,20 +512,46 @@ func TestArtifactRepositoryMVP(t *testing.T) {
 		assertDownloadedBytes(t, proxy.Body, artifactOneContent, resolved.Artifact.Sha256, resolved.Artifact.Size)
 	})
 
-	step(t, "public redirect host downloads without repository credentials", func(t *testing.T) {
-		resolved, _ := requestJSONNoBody[api.ResolveResponse](
-			t, ctx, client, http.MethodGet, resolvePath(repoA, packageName, "candidate", true), readerToken.Secret, http.StatusOK,
-		)
-		assertPublicDownload(t, ctx, resolved.DownloadUrl, publicEndpoint, artifactOneContent, artifactOneSHA, int64(len(artifactOneContent)))
+	if publicEndpoint == "" {
+		step(t, "filesystem defaults to authenticated proxy downloads", func(t *testing.T) {
+			resolved, _ := requestJSONNoBody[api.ResolveResponse](
+				t, ctx, client, http.MethodGet, resolveDefaultPath(repoA, packageName, "candidate"), readerToken.Secret, http.StatusOK,
+			)
+			assertResolution(t, resolved, versionOne, artifactOnePath, artifactOneSHA, int64(len(artifactOneContent)), manifestOneBytes, manifestSignature)
+			if parsed, err := url.Parse(resolved.DownloadUrl); err != nil || parsed.IsAbs() || !strings.Contains(parsed.RawQuery, "redirect=false") {
+				t.Fatalf("default filesystem download URL = %q, want relative API URL with redirect=false", resolved.DownloadUrl)
+			}
 
-		redirect := mustRequest(t, ctx, client, http.MethodGet, artifactPath(repoA, artifactOnePath), readerToken.Secret, nil, nil)
-		requireStatus(t, redirect, http.StatusTemporaryRedirect)
-		location := redirect.Header.Get("Location")
-		if location == "" {
-			t.Fatalf("artifact redirect omitted Location")
-		}
-		assertPublicDownload(t, ctx, location, publicEndpoint, artifactOneContent, artifactOneSHA, int64(len(artifactOneContent)))
-	})
+			proxy := mustRequest(t, ctx, client, http.MethodGet, artifactPath(repoA, artifactOnePath), readerToken.Secret, nil, nil)
+			requireStatus(t, proxy, http.StatusOK)
+			assertDownloadedBytes(t, proxy.Body, artifactOneContent, artifactOneSHA, int64(len(artifactOneContent)))
+
+			resolveRedirect := mustRequest(
+				t, ctx, client, http.MethodGet, resolvePath(repoA, packageName, "candidate", true), readerToken.Secret, nil, nil,
+			)
+			requireProblem(t, resolveRedirect, http.StatusConflict, "public-endpoint-unavailable")
+
+			artifactRedirect := mustRequest(
+				t, ctx, client, http.MethodGet, artifactPath(repoA, artifactOnePath)+"?redirect=true", readerToken.Secret, nil, nil,
+			)
+			requireProblem(t, artifactRedirect, http.StatusConflict, "public-endpoint-unavailable")
+		})
+	} else {
+		step(t, "public redirect host downloads without repository credentials", func(t *testing.T) {
+			resolved, _ := requestJSONNoBody[api.ResolveResponse](
+				t, ctx, client, http.MethodGet, resolvePath(repoA, packageName, "candidate", true), readerToken.Secret, http.StatusOK,
+			)
+			assertPublicDownload(t, ctx, resolved.DownloadUrl, publicEndpoint, artifactOneContent, artifactOneSHA, int64(len(artifactOneContent)))
+
+			redirect := mustRequest(t, ctx, client, http.MethodGet, artifactPath(repoA, artifactOnePath), readerToken.Secret, nil, nil)
+			requireStatus(t, redirect, http.StatusTemporaryRedirect)
+			location := redirect.Header.Get("Location")
+			if location == "" {
+				t.Fatalf("artifact redirect omitted Location")
+			}
+			assertPublicDownload(t, ctx, location, publicEndpoint, artifactOneContent, artifactOneSHA, int64(len(artifactOneContent)))
+		})
+	}
 
 	step(t, "API and Worker restart retains resolvable state", func(t *testing.T) {
 		if _, err := composeOutput(ctx, project, "restart", "api", "worker"); err != nil {
@@ -886,6 +912,10 @@ func promotionPath(repository, packageName, channel string) string {
 
 func resolvePath(repository, packageName, channel string, redirect bool) string {
 	return channelPath(repository, packageName, channel) + "/resolve?os=linux&arch=arm64&redirect=" + strconv.FormatBool(redirect)
+}
+
+func resolveDefaultPath(repository, packageName, channel string) string {
+	return channelPath(repository, packageName, channel) + "/resolve?os=linux&arch=arm64"
 }
 
 func sha256Hex(content []byte) string {

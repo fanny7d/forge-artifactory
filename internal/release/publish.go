@@ -26,6 +26,7 @@ import (
 	db "superfan.myasustor.com/fanchao/artifact-repository/internal/database/sqlc"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/id"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/idempotency"
+	productdomain "superfan.myasustor.com/fanchao/artifact-repository/internal/product"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/signing"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/storage"
 )
@@ -52,6 +53,11 @@ type PublishServiceOptions struct {
 	Heartbeat      time.Duration
 	IdempotencyTTL time.Duration
 	Metrics        SigningMetrics
+	Products       ProductLookup
+}
+
+type ProductLookup interface {
+	GetByPackageID(context.Context, uuid.UUID) (productdomain.Product, error)
 }
 
 type SigningMetrics interface {
@@ -71,6 +77,7 @@ type PublishService struct {
 	heartbeatInterval time.Duration
 	idempotencyTTL    time.Duration
 	metrics           SigningMetrics
+	products          ProductLookup
 	attempts          *publishAttemptStore
 }
 
@@ -146,6 +153,7 @@ func NewPublishService(options PublishServiceOptions) (*PublishService, error) {
 		heartbeatInterval: heartbeat,
 		idempotencyTTL:    options.IdempotencyTTL,
 		metrics:           options.Metrics,
+		products:          options.Products,
 		attempts:          newPublishAttemptStore(options.Pool),
 	}, nil
 }
@@ -644,12 +652,26 @@ func (s *PublishService) startPublish(ctx context.Context, command PublishComman
 		PublishedAt: now,
 		Artifacts:   make([]SnapshotArtifact, 0, len(artifactRows)),
 	}
+	if s.products != nil {
+		product, productErr := s.products.GetByPackageID(ctx, packageRow.ID)
+		switch {
+		case productErr == nil:
+			snapshot.Product = &SnapshotProduct{Slug: product.Slug, Command: product.CommandName}
+		case errors.Is(productErr, productdomain.ErrNotFound):
+		default:
+			return publishExecution{}, nil, fmt.Errorf("load product publish metadata: %w", productErr)
+		}
+	}
 	for _, row := range artifactRows {
 		if row.RepositoryID != repository.ID {
 			return completeValidationFailure(ErrUnprocessable)
 		}
 		if row.BlobState != string(blob.StateReady) {
 			return completeValidationFailure(ErrPublishNotReady)
+		}
+		install, err := decodeInstallSpec(row.InstallSpec)
+		if err != nil {
+			return completeValidationFailure(fmt.Errorf("decode publish install spec: %w", err))
 		}
 		snapshot.Artifacts = append(snapshot.Artifacts, SnapshotArtifact{
 			Path:      row.LogicalPath,
@@ -661,6 +683,7 @@ func (s *PublishService) startPublish(ctx context.Context, command PublishComman
 			MediaType: row.MediaType,
 			SHA256:    row.BlobSha256,
 			Size:      row.Size,
+			Install:   install,
 		})
 	}
 	if _, err := BuildManifest(snapshot); err != nil {

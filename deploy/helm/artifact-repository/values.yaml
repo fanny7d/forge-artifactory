@@ -29,12 +29,17 @@ worker:
   replicaCount: 1
   port: 8081
 
+storage:
+  filesystem:
+    root: /var/lib/artifact-repository
+    persistence:
+      existingClaim: ""
+      storageClassName: ""
+      accessModes:
+        - ReadWriteOnce
+      size: 20Gi
+
 config:
-  minioEndpoint: http://minio:9000
-  minioPublicEndpoint: ""
-  minioBucket: artifacts
-  minioRegion: us-east-1
-  minioUseTLS: false
   maxUploadBytes: "10737418240"
   uploadIdleTimeout: 10m
   uploadMaxDuration: 12h
@@ -59,8 +64,6 @@ secrets:
   create: true
   existingSecret: ""
   databaseURL: CHANGE_ME
-  minioAccessKey: CHANGE_ME
-  minioSecretKey: CHANGE_ME
   tokenPepper: CHANGE_ME_BASE64URL_32_BYTES
   idempotencyResponseKey: CHANGE_ME_BASE64URL_32_BYTES
 
@@ -73,6 +76,8 @@ podSecurityContext:
   runAsNonRoot: true
   runAsUser: 65532
   runAsGroup: 65532
+  fsGroup: 65532
+  fsGroupChangePolicy: OnRootMismatch
   seccompProfile:
     type: RuntimeDefault
 

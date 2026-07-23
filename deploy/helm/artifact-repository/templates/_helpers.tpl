@@ -34,3 +34,11 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{- required "secrets.existingSecret is required when secrets.create=false" .Values.secrets.existingSecret -}}
 {{- end -}}
 {{- end -}}
+
+{{- define "artifact-repository.storageClaimName" -}}
+{{- if .Values.storage.filesystem.persistence.existingClaim -}}
+{{- .Values.storage.filesystem.persistence.existingClaim -}}
+{{- else -}}
+{{- printf "%s-data" (include "artifact-repository.fullname" .) -}}
+{{- end -}}
+{{- end -}}

@@ -26,6 +26,7 @@ import (
 	blobdomain "superfan.myasustor.com/fanchao/artifact-repository/internal/blob"
 	channeldomain "superfan.myasustor.com/fanchao/artifact-repository/internal/channel"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/idempotency"
+	productdomain "superfan.myasustor.com/fanchao/artifact-repository/internal/product"
 	releasedomain "superfan.myasustor.com/fanchao/artifact-repository/internal/release"
 	repositorydomain "superfan.myasustor.com/fanchao/artifact-repository/internal/repository"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/storage"
@@ -568,15 +569,15 @@ func writeHandlerError(w http.ResponseWriter, r *http.Request, err error) {
 		problem.Title = "Not Found"
 		problem.Status = http.StatusNotFound
 		problem.Code = "not-found"
-	case errors.Is(err, identity.ErrNotFound), errors.Is(err, repositorydomain.ErrNotFound), errors.Is(err, releasedomain.ErrNotFound), errors.Is(err, channeldomain.ErrNotFound), errors.Is(err, artifactdomain.ErrNotFound), errors.Is(err, blobdomain.ErrNotFound), errors.Is(err, storage.ErrNotFound):
+	case errors.Is(err, identity.ErrNotFound), errors.Is(err, repositorydomain.ErrNotFound), errors.Is(err, productdomain.ErrNotFound), errors.Is(err, releasedomain.ErrNotFound), errors.Is(err, channeldomain.ErrNotFound), errors.Is(err, artifactdomain.ErrNotFound), errors.Is(err, blobdomain.ErrNotFound), errors.Is(err, storage.ErrNotFound):
 		problem.Title = "Not Found"
 		problem.Status = http.StatusNotFound
 		problem.Code = "not-found"
-	case errors.Is(err, identity.ErrConflict), errors.Is(err, repositorydomain.ErrConflict), errors.Is(err, releasedomain.ErrConflict), errors.Is(err, releasedomain.ErrPublishNotReady), errors.Is(err, releasedomain.ErrLeaseLost), errors.Is(err, channeldomain.ErrConflict), errors.Is(err, channeldomain.ErrReleaseNotPublished), errors.Is(err, artifactdomain.ErrConflict), errors.Is(err, artifactdomain.ErrUploadLeaseLost), errors.Is(err, blobdomain.ErrInProgress), errors.Is(err, blobdomain.ErrDeleting), errors.Is(err, blobdomain.ErrNotReady), errors.Is(err, blobdomain.ErrSizeMismatch), errors.Is(err, storage.ErrObjectConflict):
+	case errors.Is(err, identity.ErrConflict), errors.Is(err, repositorydomain.ErrConflict), errors.Is(err, productdomain.ErrConflict), errors.Is(err, releasedomain.ErrConflict), errors.Is(err, releasedomain.ErrPublishNotReady), errors.Is(err, releasedomain.ErrLeaseLost), errors.Is(err, channeldomain.ErrConflict), errors.Is(err, channeldomain.ErrReleaseNotPublished), errors.Is(err, artifactdomain.ErrConflict), errors.Is(err, artifactdomain.ErrUploadLeaseLost), errors.Is(err, blobdomain.ErrInProgress), errors.Is(err, blobdomain.ErrDeleting), errors.Is(err, blobdomain.ErrNotReady), errors.Is(err, blobdomain.ErrSizeMismatch), errors.Is(err, storage.ErrObjectConflict):
 		problem.Title = "Conflict"
 		problem.Status = http.StatusConflict
 		problem.Code = "conflict"
-	case errors.Is(err, identity.ErrInvalidRequest), errors.Is(err, repositorydomain.ErrInvalidRequest), errors.Is(err, releasedomain.ErrInvalidRequest), errors.Is(err, channeldomain.ErrInvalidRequest), errors.Is(err, artifactdomain.ErrInvalidRequest), errors.Is(err, artifactdomain.ErrInvalidPath), errors.Is(err, artifactdomain.ErrLengthMismatch), errors.Is(err, artifactdomain.ErrUploadIdle), errors.Is(err, storage.ErrInvalidRange), errors.Is(err, audit.ErrInvalidPage):
+	case errors.Is(err, identity.ErrInvalidRequest), errors.Is(err, repositorydomain.ErrInvalidRequest), errors.Is(err, productdomain.ErrInvalidRequest), errors.Is(err, releasedomain.ErrInvalidRequest), errors.Is(err, channeldomain.ErrInvalidRequest), errors.Is(err, artifactdomain.ErrInvalidRequest), errors.Is(err, artifactdomain.ErrInvalidPath), errors.Is(err, artifactdomain.ErrLengthMismatch), errors.Is(err, artifactdomain.ErrUploadIdle), errors.Is(err, storage.ErrInvalidRange), errors.Is(err, audit.ErrInvalidPage):
 		problem.Title = "Bad Request"
 		problem.Status = http.StatusBadRequest
 		problem.Code = "invalid-request"

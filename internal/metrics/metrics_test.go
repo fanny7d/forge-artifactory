@@ -22,6 +22,7 @@ func TestMetricsExposeBoundedLabels(t *testing.T) {
 	registry.SetJobBacklog("cleanup_blob", 3)
 	registry.SetJobBacklog("tenant-specific-job", 4)
 	registry.ObserveDependency("postgres", "success", 20*time.Millisecond)
+	registry.ObserveDependency("filesystem", "success", 10*time.Millisecond)
 	registry.ObserveDependency("https://secret.example/path", "failed", time.Second)
 
 	response := httptest.NewRecorder()
@@ -37,6 +38,7 @@ func TestMetricsExposeBoundedLabels(t *testing.T) {
 		`artifact_repository_job_backlog{kind="cleanup_blob"} 3`,
 		`artifact_repository_job_backlog{kind="unknown"} 4`,
 		`artifact_repository_dependency_requests_total{dependency="postgres",result="success"} 1`,
+		`artifact_repository_dependency_requests_total{dependency="filesystem",result="success"} 1`,
 		`artifact_repository_dependency_requests_total{dependency="unknown",result="failed"} 1`,
 	} {
 		if !strings.Contains(body, expected) {

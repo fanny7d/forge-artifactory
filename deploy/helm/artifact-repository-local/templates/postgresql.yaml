@@ -1,7 +1,7 @@
 apiVersion: v1
 kind: Service
 metadata:
-  name: {{ include "artifact-repository-local.fullname" . }}-postgresql
+  name: {{ include "artifact-repository-local.postgresqlFullname" . }}
   labels:
     {{- include "artifact-repository-local.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
@@ -17,7 +17,9 @@ spec:
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
-  name: {{ include "artifact-repository-local.fullname" . }}-postgresql
+  name: {{ include "artifact-repository-local.postgresqlFullname" . }}
+  annotations:
+    helm.sh/resource-policy: keep
   labels:
     {{- include "artifact-repository-local.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
@@ -34,7 +36,7 @@ spec:
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: {{ include "artifact-repository-local.fullname" . }}-postgresql
+  name: {{ include "artifact-repository-local.postgresqlFullname" . }}
   labels:
     {{- include "artifact-repository-local.labels" . | nindent 4 }}
     app.kubernetes.io/component: postgresql
@@ -86,4 +88,4 @@ spec:
       volumes:
         - name: data
           persistentVolumeClaim:
-            claimName: {{ include "artifact-repository-local.fullname" . }}-postgresql
+            claimName: {{ include "artifact-repository-local.postgresqlFullname" . }}

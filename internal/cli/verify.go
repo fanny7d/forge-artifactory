@@ -15,27 +15,35 @@ import (
 	"time"
 
 	api "superfan.myasustor.com/fanchao/artifact-repository/internal/api"
+	releasedomain "superfan.myasustor.com/fanchao/artifact-repository/internal/release"
 )
 
 type signedManifest struct {
 	SchemaVersion int                      `json:"schemaVersion"`
 	Repository    string                   `json:"repository"`
 	Package       string                   `json:"package"`
+	Product       *signedManifestProduct   `json:"product,omitempty"`
 	Version       string                   `json:"version"`
 	PublishedAt   time.Time                `json:"publishedAt"`
 	Artifacts     []signedManifestArtifact `json:"artifacts"`
 }
 
+type signedManifestProduct struct {
+	Slug    string `json:"slug"`
+	Command string `json:"command"`
+}
+
 type signedManifestArtifact struct {
-	Path      string `json:"path"`
-	Filename  string `json:"filename"`
-	OS        string `json:"os"`
-	Arch      string `json:"arch"`
-	Variant   string `json:"variant"`
-	Role      string `json:"role"`
-	MediaType string `json:"mediaType"`
-	SHA256    string `json:"sha256"`
-	Size      int64  `json:"size"`
+	Path      string                     `json:"path"`
+	Filename  string                     `json:"filename"`
+	OS        string                     `json:"os"`
+	Arch      string                     `json:"arch"`
+	Variant   string                     `json:"variant"`
+	Role      string                     `json:"role"`
+	MediaType string                     `json:"mediaType"`
+	SHA256    string                     `json:"sha256"`
+	Size      int64                      `json:"size"`
+	Install   *releasedomain.InstallSpec `json:"install,omitempty"`
 }
 
 func verifyResolution(publicKeyPath string, ref packageReference, selection channelSelection, resolved api.ResolveResponse) error {
@@ -66,14 +74,31 @@ func verifyResolution(publicKeyPath string, ref packageReference, selection chan
 	if err := decoder.Decode(new(any)); !errors.Is(err, io.EOF) {
 		return fmt.Errorf("signed manifest must contain exactly one JSON object")
 	}
-	if manifest.SchemaVersion != 1 || manifest.Repository != ref.Repository || manifest.Package != ref.Package || manifest.Version != resolved.Version {
+	if (manifest.SchemaVersion != 1 && manifest.SchemaVersion != 2) ||
+		manifest.Repository != ref.Repository || manifest.Package != ref.Package || manifest.Version != resolved.Version {
 		return fmt.Errorf("signed manifest identity does not match the resolved package")
+	}
+	if manifest.SchemaVersion == 1 && manifest.Product != nil {
+		return fmt.Errorf("schema v1 manifest unexpectedly contains product metadata")
+	}
+	if manifest.SchemaVersion == 2 {
+		if manifest.Product == nil || manifest.Product.Slug != ref.Package || manifest.Product.Command == "" {
+			return fmt.Errorf("schema v2 manifest product identity does not match the resolved package")
+		}
 	}
 	for _, artifact := range manifest.Artifacts {
 		if artifact.OS == selection.OS && artifact.Arch == selection.Arch && artifact.Variant == selection.Variant && artifact.Role == selection.Role {
 			if artifact.Path != resolved.Artifact.Path || artifact.SHA256 != resolved.Artifact.Sha256 || artifact.Size != resolved.Artifact.Size ||
 				resolved.Artifact.Os != selection.OS || resolved.Artifact.Arch != selection.Arch || resolved.Artifact.Variant != selection.Variant || resolved.Artifact.Role != selection.Role {
 				return fmt.Errorf("resolved artifact metadata does not match the signed manifest")
+			}
+			if manifest.SchemaVersion == 2 {
+				if artifact.Install == nil {
+					return fmt.Errorf("schema v2 selected artifact has no install plan")
+				}
+				if err := artifact.Install.Validate(); err != nil {
+					return fmt.Errorf("schema v2 selected artifact install plan is invalid: %w", err)
+				}
 			}
 			return nil
 		}

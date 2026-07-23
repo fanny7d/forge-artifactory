@@ -1,6 +1,9 @@
 {{- if ne (int .Values.api.replicaCount) 1 }}
 {{- fail "api.replicaCount must be 1 while the MVP rate limiter is process-local" }}
 {{- end }}
+{{- if ne (int .Values.worker.replicaCount) 1 }}
+{{- fail "worker.replicaCount must be 1 while API and Worker share one filesystem volume" }}
+{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -108,6 +111,53 @@ spec:
             - name: signing-keys
               mountPath: /app/keys
               readOnly: true
+            - name: artifact-storage
+              mountPath: {{ .Values.storage.filesystem.root }}
+        - name: worker
+          image: {{ include "artifact-repository.image" . }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - worker
+          securityContext:
+            {{- toYaml .Values.containerSecurityContext | nindent 12 }}
+          envFrom:
+            - configMapRef:
+                name: {{ include "artifact-repository.fullname" . }}
+            - secretRef:
+                name: {{ include "artifact-repository.secretName" . }}
+          env:
+            - name: HTTP_ADDR
+              value: ":{{ .Values.worker.port }}"
+          ports:
+            - name: worker-http
+              containerPort: {{ .Values.worker.port }}
+              protocol: TCP
+          startupProbe:
+            httpGet:
+              path: /healthz
+              port: worker-http
+            periodSeconds: 2
+            failureThreshold: 30
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: worker-http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /readyz
+              port: worker-http
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - name: signing-keys
+              mountPath: /app/keys
+              readOnly: true
+            - name: artifact-storage
+              mountPath: {{ .Values.storage.filesystem.root }}
       volumes:
         - name: signing-source
           secret:
@@ -120,6 +170,9 @@ spec:
                 path: public.pem
         - name: signing-keys
           emptyDir: {}
+        - name: artifact-storage
+          persistentVolumeClaim:
+            claimName: {{ include "artifact-repository.storageClaimName" . }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}

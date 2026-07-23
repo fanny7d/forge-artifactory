@@ -1,8 +1,12 @@
 # Artifact Repository
 
-一个 API 优先的不可变二进制制品仓库，支持原始制品、签名 Release，以及
-`candidate`/`stable` Channel 的原子晋级。PostgreSQL 负责可见状态，MinIO
-负责存储按内容寻址的不可变字节。
+一个面向公司私有 CLI 的多产品发布与自更新平台。每个 CLI 独立管理版本和多平台
+制品，支持单二进制原子自替换、`tar.gz`/`zip` Bundle、签名安装 Hook、当前用户
+`curl | sh` 首装，以及 CLI 启动时检查 stable 并提示升级。底层仍提供 API 优先的
+不可变 Artifact、签名 Release 和 `candidate`/`stable` Channel。
+
+产品模型、CI 发布契约和 CLI 嵌入示例见
+[`docs/updater.md`](docs/updater.md)。
 
 ## 本地流程
 
@@ -18,7 +22,8 @@ go run ./cmd/artifact-repository keygen \
   --public-key-file .local/signing/public.pem
 ```
 
-Compose 会在 `signing-keys` 卷中维护一对不会被覆盖的签名密钥。启动完整堆栈，
+Compose 会在 `signing-keys` 卷中维护一对不会被覆盖的签名密钥，并让 API 与
+Worker 共享 `artifact-data` 文件系统卷。启动完整堆栈，
 并保存其公钥作为独立信任根；不要从 signing-key API 获取验签信任根：
 
 ```bash
@@ -34,9 +39,10 @@ docker compose -p "$AR_PROJECT" exec -T api cat /app/keys/public.pem \
 ```
 
 API 启动后，可通过 [`http://127.0.0.1:8080/dashboard/`](http://127.0.0.1:8080/dashboard/)
-打开内置管理控制台。控制台使用现有 Bearer Token 登录，不创建额外会话，也不绕过
-API 的 Scope 和 Repository 权限检查。默认只在当前浏览器会话中保存 Token；只有显式
-勾选“保持登录”时才会写入浏览器本地存储。
+打开内置管理控制台。界面只保留“CLI 制品库”：添加多个 CLI、查看当前版本、一次发布
+多个平台文件，以及复制永久安装命令。Repository、Package、Channel、服务账号和审计
+等底层对象不再暴露在日常界面中。控制台使用管理员 Bearer Token 登录；默认只在当前
+浏览器会话中保存，只有显式勾选“保持登录”才写入浏览器本地存储。
 
 终端用户可以使用 `artifactctl` 上传、下载和查看制品，或验证签名后从 Channel 拉取
 匹配平台的 Release。构建、认证和命令示例见 [`docs/cli.md`](docs/cli.md)：
@@ -49,8 +55,8 @@ export ARTIFACT_REPOSITORY_TOKEN='ar1...'
 ./bin/artifactctl upload ./dist/edgecli releases/linux/arm64/edgecli
 ```
 
-控制台首版支持仓库、Package、Release 和 Channel 浏览，制品上传，Release 发布与
-Channel 晋级，以及管理员使用的服务账号、Token 和审计日志管理。
+控制台发布失败后可以继续重试；已经发布但未晋级的版本可直接“设为当前”，未完成的
+draft 可从版本历史清理。CI 仍可通过 OpenAPI 使用完整底层能力。
 
 首次管理员初始化只能执行一次。请避免让返回的 Bearer Token 出现在 shell
 跟踪信息或日志中：
@@ -151,7 +157,7 @@ curl --fail-with-body -sS -X POST \
 验收通过后，再将同一个 Release 以相同的 `version` 和可追溯 `reason` 提交到 `POST /api/v1/repositories/{repo}/packages/{package}/channels/stable/promotions`。设备端自动更新只查询 `stable` Channel，不会自动接受 `candidate`。
 
 签发只读 Token，Resolve `candidate`，然后通过 API 代理下载。读者不需要获得
-MinIO 凭据、Bucket 名称或 Object Key：
+底层存储凭据、目录名称或 Object Key：
 
 ```bash
 READER_ID="$(curl --fail-with-body -sS -X POST "$BASE_URL/api/v1/service-accounts" \
@@ -203,12 +209,12 @@ openssl pkeyutl -verify -pubin -inkey .local/compose-public.pem -rawin \
   -in .local/manifest.json -sigfile .local/manifest.sig
 ```
 
-配置 `MINIO_PUBLIC_ENDPOINT` 后，`redirect=true` 会返回一个预签名公开 URL，
-客户端无需 API 或 MinIO 凭据即可下载：
+文件系统存储不提供公开预签名 URL。下载必须使用 `redirect=false`，由 API
+代理并鉴权：
 
 ```bash
 REDIRECT_RESOLVE="$(curl --fail-with-body -sS \
-  "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&role=binary&redirect=true" \
+    "$BASE_URL/api/v1/repositories/$REPO/packages/$PACKAGE/channels/candidate/resolve?os=linux&arch=arm64&role=binary&redirect=false" \
   -H "Authorization: Bearer $READER_TOKEN")"
 curl --fail-with-body -sS "$(jq -r .downloadUrl <<<"$REDIRECT_RESOLVE")" \
   -o .local/edgecli.redirected
@@ -232,6 +238,8 @@ go vet ./...
 test -z "$(gofmt -l .)"
 git diff --check
 ```
+
+默认 E2E 会验证 filesystem 的代理下载与显式重定向拒绝。
 
 这些命令只会修改本地服务数据和文件，不会自动暂存、提交或推送 Git 变更。
 

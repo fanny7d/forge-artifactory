@@ -270,7 +270,7 @@ func boundedJobKind(value string) string {
 
 func boundedDependency(value string) string {
 	switch value {
-	case "postgres", "minio":
+	case "postgres", "filesystem":
 		return value
 	default:
 		return "unknown"

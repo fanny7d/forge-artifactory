@@ -15,7 +15,6 @@ import (
 )
 
 var (
-	validVersion            = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$`)
 	validCoordinate         = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$`)
 	validOptionalCoordinate = regexp.MustCompile(`^[A-Za-z0-9._+-]{0,64}$`)
 )
@@ -74,7 +73,7 @@ func (h releaseHandlers) create(w http.ResponseWriter, r *http.Request) {
 		writeHandlerError(w, r, err)
 		return
 	}
-	if !validVersion.MatchString(body.Version) {
+	if !releasedomain.ValidVersion(body.Version) {
 		writeHandlerError(w, r, releasedomain.ErrInvalidRequest)
 		return
 	}
@@ -193,6 +192,11 @@ func (h releaseHandlers) addArtifact(w http.ResponseWriter, r *http.Request) {
 		writeHandlerError(w, r, releasedomain.ErrInvalidRequest)
 		return
 	}
+	install, err := installSpecFromDTO(body.Install)
+	if err != nil {
+		writeHandlerError(w, r, err)
+		return
+	}
 	canonicalResource := releaseCollectionResource(repositoryKey, packageName) + "/" + version + "/artifacts"
 	mutation, err := mutationFromRequest(r, actor, canonicalResource, raw)
 	if err != nil {
@@ -209,6 +213,7 @@ func (h releaseHandlers) addArtifact(w http.ResponseWriter, r *http.Request) {
 		Arch:          body.Arch,
 		Variant:       variant,
 		Role:          role,
+		Install:       install,
 	})
 	if err != nil {
 		writeHandlerError(w, r, err)
@@ -318,7 +323,7 @@ func releaseScope(w http.ResponseWriter, r *http.Request, requireVersion bool) (
 		writeHandlerError(w, r, releasedomain.ErrInvalidRequest)
 		return identity.Actor{}, "", "", false
 	}
-	if requireVersion && !validVersion.MatchString(chi.URLParam(r, "version")) {
+	if requireVersion && !releasedomain.ValidVersion(chi.URLParam(r, "version")) {
 		writeHandlerError(w, r, releasedomain.ErrInvalidRequest)
 		return identity.Actor{}, "", "", false
 	}
@@ -355,6 +360,80 @@ func releaseArtifactDTO(item releasedomain.ReleaseArtifact) ReleaseArtifact {
 		Arch:     item.Arch,
 		Variant:  item.Variant,
 		Role:     item.Role,
+		Install:  installSpecDTO(item.Install),
+	}
+}
+
+func installSpecFromDTO(item *InstallSpec) (*releasedomain.InstallSpec, error) {
+	if item == nil {
+		return nil, nil
+	}
+	entrypoint := ""
+	if item.Entrypoint != nil {
+		entrypoint = *item.Entrypoint
+	}
+	hooks := []releasedomain.InstallHook{}
+	if item.Hooks != nil {
+		hooks = make([]releasedomain.InstallHook, 0, len(*item.Hooks))
+		for _, hook := range *item.Hooks {
+			arguments := []string{}
+			if hook.Args != nil {
+				arguments = append(arguments, (*hook.Args)...)
+			}
+			hooks = append(hooks, releasedomain.InstallHook{
+				Phase:          releasedomain.HookPhase(hook.Phase),
+				Path:           hook.Path,
+				Args:           arguments,
+				TimeoutSeconds: hook.TimeoutSeconds,
+			})
+		}
+	}
+	spec := &releasedomain.InstallSpec{
+		Strategy:   releasedomain.InstallStrategy(item.Strategy),
+		Format:     releasedomain.InstallFormat(item.Format),
+		Entrypoint: entrypoint,
+		Mode:       item.Mode,
+		Hooks:      hooks,
+	}
+	if err := spec.Validate(); err != nil {
+		return nil, err
+	}
+	return spec, nil
+}
+
+func installSpecDTO(item *releasedomain.InstallSpec) *InstallSpec {
+	if item == nil {
+		return nil
+	}
+	var entrypoint *string
+	if item.Entrypoint != "" {
+		value := item.Entrypoint
+		entrypoint = &value
+	}
+	var hooks *[]InstallHook
+	if len(item.Hooks) > 0 {
+		values := make([]InstallHook, 0, len(item.Hooks))
+		for _, hook := range item.Hooks {
+			var arguments *[]string
+			if len(hook.Args) > 0 {
+				copied := append([]string(nil), hook.Args...)
+				arguments = &copied
+			}
+			values = append(values, InstallHook{
+				Phase:          InstallHookPhase(hook.Phase),
+				Path:           hook.Path,
+				Args:           arguments,
+				TimeoutSeconds: hook.TimeoutSeconds,
+			})
+		}
+		hooks = &values
+	}
+	return &InstallSpec{
+		Strategy:   InstallSpecStrategy(item.Strategy),
+		Format:     InstallSpecFormat(item.Format),
+		Entrypoint: entrypoint,
+		Mode:       item.Mode,
+		Hooks:      hooks,
 	}
 }
 

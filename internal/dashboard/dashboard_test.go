@@ -18,7 +18,7 @@ func TestHandlerServesDashboardAndAssets(t *testing.T) {
 		{path: "/dashboard/", contentType: "text/html", contains: "Forge Artifactory"},
 		{path: "/dashboard/styles.css", contentType: "text/css", contains: ":root"},
 		{path: "/dashboard/app.js", contentType: "javascript", contains: "function api"},
-		{path: "/dashboard/repositories/example", contentType: "text/html", contains: "Forge Artifactory"},
+		{path: "/dashboard/products/example", contentType: "text/html", contains: "Forge Artifactory"},
 	} {
 		t.Run(test.path, func(t *testing.T) {
 			request := httptest.NewRequest(http.MethodGet, test.path, nil)
@@ -34,6 +34,69 @@ func TestHandlerServesDashboardAndAssets(t *testing.T) {
 				t.Fatalf("response does not contain %q", test.contains)
 			}
 		})
+	}
+}
+
+func TestDashboardUsesProductFocusedNavigationAndPublishingFlow(t *testing.T) {
+	index, err := embedded.ReadFile("assets/index.html")
+	if err != nil {
+		t.Fatalf("read index: %v", err)
+	}
+	html := string(index)
+	for _, required := range []string{
+		`href="#/products" data-route="products">CLI 制品库</a>`,
+		`<span>CLI Releases</span>`,
+	} {
+		if !strings.Contains(html, required) {
+			t.Errorf("index does not contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`data-route="repositories"`,
+		`data-route="accounts"`,
+		`data-route="audit"`,
+	} {
+		if strings.Contains(html, forbidden) {
+			t.Errorf("index still contains legacy navigation %q", forbidden)
+		}
+	}
+
+	app, err := embedded.ReadFile("assets/app.js")
+	if err != nil {
+		t.Fatalf("read app: %v", err)
+	}
+	javascript := string(app)
+	for _, required := range []string{
+		`listAll("/api/v1/products")`,
+		`api("/api/v1/products", {`,
+		`curl -fsSL ${location.origin}${path} | sh`,
+		`strategy: "self-replace"`,
+		`strategy: "bundle"`,
+		`format: "raw"`,
+		`高级安装设置`,
+		`["preflight", "安装前"`,
+		`["post-install", "安装后"`,
+		`["verify", "验证"`,
+		`timeoutSeconds`,
+		`if (hooks.length) install.hooks = hooks`,
+		`role: "binary"`,
+		`/channels/stable/promotions`,
+		`data-action="set-current"`,
+		`data-action="cancel-draft"`,
+	} {
+		if !strings.Contains(javascript, required) {
+			t.Errorf("app does not contain %q", required)
+		}
+	}
+	for _, forbidden := range []string{
+		`function renderAccounts`,
+		`function renderAudit`,
+		`function createRepository`,
+		`function promote(`,
+	} {
+		if strings.Contains(javascript, forbidden) {
+			t.Errorf("app still contains legacy UI flow %q", forbidden)
+		}
 	}
 }
 

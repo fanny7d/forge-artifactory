@@ -1,7 +1,7 @@
 apiVersion: v2
 name: artifact-repository-local
-description: Local PostgreSQL and MinIO dependencies for Artifact Repository
+description: Local PostgreSQL dependency for Artifact Repository
 type: application
-version: 0.1.0
+version: 0.2.1
 appVersion: "0.1.0"
 kubeVersion: ">=1.28.0-0"

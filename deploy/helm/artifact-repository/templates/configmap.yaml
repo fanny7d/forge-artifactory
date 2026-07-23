@@ -5,11 +5,7 @@ metadata:
   labels:
     {{- include "artifact-repository.labels" . | nindent 4 }}
 data:
-  MINIO_ENDPOINT: {{ .Values.config.minioEndpoint | quote }}
-  MINIO_PUBLIC_ENDPOINT: {{ .Values.config.minioPublicEndpoint | quote }}
-  MINIO_BUCKET: {{ .Values.config.minioBucket | quote }}
-  MINIO_REGION: {{ .Values.config.minioRegion | quote }}
-  MINIO_USE_TLS: {{ .Values.config.minioUseTLS | quote }}
+  FILESYSTEM_ROOT: {{ required "storage.filesystem.root is required" .Values.storage.filesystem.root | quote }}
   SIGNING_PRIVATE_KEY_FILE: /app/keys/private.pem
   SIGNING_PUBLIC_KEY_FILE: /app/keys/public.pem
   MAX_UPLOAD_BYTES: {{ .Values.config.maxUploadBytes | quote }}

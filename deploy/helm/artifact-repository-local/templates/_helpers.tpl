@@ -10,6 +10,10 @@
 {{- end -}}
 {{- end -}}
 
+{{- define "artifact-repository-local.postgresqlFullname" -}}
+{{- default (printf "%s-postgresql" (include "artifact-repository-local.fullname" .)) .Values.postgresql.fullnameOverride | trunc 63 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "artifact-repository-local.labels" -}}
 helm.sh/chart: {{ printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" }}
 app.kubernetes.io/name: {{ include "artifact-repository-local.name" . }}

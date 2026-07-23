@@ -2,6 +2,6 @@ apiVersion: v2
 name: artifact-repository
 description: API-first immutable artifact repository
 type: application
-version: 0.1.0
+version: 0.2.0
 appVersion: "0.1.0"
 kubeVersion: ">=1.28.0-0"

@@ -88,6 +88,66 @@ func (e HealthStatus) Valid() bool {
 	}
 }
 
+// Defines values for InstallHookPhase.
+const (
+	PostInstall InstallHookPhase = "post-install"
+	Preflight   InstallHookPhase = "preflight"
+	Verify      InstallHookPhase = "verify"
+)
+
+// Valid indicates whether the value is a known member of the InstallHookPhase enum.
+func (e InstallHookPhase) Valid() bool {
+	switch e {
+	case PostInstall:
+		return true
+	case Preflight:
+		return true
+	case Verify:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InstallSpecFormat.
+const (
+	InstallSpecFormatRaw   InstallSpecFormat = "raw"
+	InstallSpecFormatTarGz InstallSpecFormat = "tar.gz"
+	InstallSpecFormatZip   InstallSpecFormat = "zip"
+)
+
+// Valid indicates whether the value is a known member of the InstallSpecFormat enum.
+func (e InstallSpecFormat) Valid() bool {
+	switch e {
+	case InstallSpecFormatRaw:
+		return true
+	case InstallSpecFormatTarGz:
+		return true
+	case InstallSpecFormatZip:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for InstallSpecStrategy.
+const (
+	InstallSpecStrategyBundle      InstallSpecStrategy = "bundle"
+	InstallSpecStrategySelfReplace InstallSpecStrategy = "self-replace"
+)
+
+// Valid indicates whether the value is a known member of the InstallSpecStrategy enum.
+func (e InstallSpecStrategy) Valid() bool {
+	switch e {
+	case InstallSpecStrategyBundle:
+		return true
+	case InstallSpecStrategySelfReplace:
+		return true
+	default:
+		return false
+	}
+}
+
 // Defines values for PackageChannels.
 const (
 	Candidate PackageChannels = "candidate"
@@ -100,6 +160,45 @@ func (e PackageChannels) Valid() bool {
 	case Candidate:
 		return true
 	case Stable:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProductPlatformFormat.
+const (
+	ProductPlatformFormatRaw   ProductPlatformFormat = "raw"
+	ProductPlatformFormatTarGz ProductPlatformFormat = "tar.gz"
+	ProductPlatformFormatZip   ProductPlatformFormat = "zip"
+)
+
+// Valid indicates whether the value is a known member of the ProductPlatformFormat enum.
+func (e ProductPlatformFormat) Valid() bool {
+	switch e {
+	case ProductPlatformFormatRaw:
+		return true
+	case ProductPlatformFormatTarGz:
+		return true
+	case ProductPlatformFormatZip:
+		return true
+	default:
+		return false
+	}
+}
+
+// Defines values for ProductPlatformStrategy.
+const (
+	ProductPlatformStrategyBundle      ProductPlatformStrategy = "bundle"
+	ProductPlatformStrategySelfReplace ProductPlatformStrategy = "self-replace"
+)
+
+// Valid indicates whether the value is a known member of the ProductPlatformStrategy enum.
+func (e ProductPlatformStrategy) Valid() bool {
+	switch e {
+	case ProductPlatformStrategyBundle:
+		return true
+	case ProductPlatformStrategySelfReplace:
 		return true
 	default:
 		return false
@@ -161,6 +260,7 @@ func (e Scope) Valid() bool {
 type AddReleaseArtifactRequest struct {
 	Arch         Coordinate          `json:"arch"`
 	ArtifactPath string              `json:"artifactPath"`
+	Install      *InstallSpec        `json:"install,omitempty"`
 	Os           Coordinate          `json:"os"`
 	Role         *OptionalCoordinate `json:"role,omitempty"`
 	Variant      *OptionalCoordinate `json:"variant,omitempty"`
@@ -246,6 +346,14 @@ type CreatePackageRequest struct {
 	Name Name `json:"name"`
 }
 
+// CreateProductRequest defines model for CreateProductRequest.
+type CreateProductRequest struct {
+	CommandName string  `json:"commandName"`
+	Description *string `json:"description,omitempty"`
+	DisplayName string  `json:"displayName"`
+	Slug        Name    `json:"slug"`
+}
+
 // CreateReleaseRequest defines model for CreateReleaseRequest.
 type CreateReleaseRequest struct {
 	Version Version `json:"version"`
@@ -276,6 +384,32 @@ type Health struct {
 
 // HealthStatus defines model for Health.Status.
 type HealthStatus string
+
+// InstallHook defines model for InstallHook.
+type InstallHook struct {
+	Args           *[]string        `json:"args,omitempty"`
+	Path           string           `json:"path"`
+	Phase          InstallHookPhase `json:"phase"`
+	TimeoutSeconds int              `json:"timeoutSeconds"`
+}
+
+// InstallHookPhase defines model for InstallHook.Phase.
+type InstallHookPhase string
+
+// InstallSpec defines model for InstallSpec.
+type InstallSpec struct {
+	Entrypoint *string             `json:"entrypoint,omitempty"`
+	Format     InstallSpecFormat   `json:"format"`
+	Hooks      *[]InstallHook      `json:"hooks,omitempty"`
+	Mode       string              `json:"mode"`
+	Strategy   InstallSpecStrategy `json:"strategy"`
+}
+
+// InstallSpecFormat defines model for InstallSpec.Format.
+type InstallSpecFormat string
+
+// InstallSpecStrategy defines model for InstallSpec.Strategy.
+type InstallSpecStrategy string
 
 // IssuedToken defines model for IssuedToken.
 type IssuedToken struct {
@@ -327,6 +461,44 @@ type Problem struct {
 	Type      string  `json:"type"`
 }
 
+// Product defines model for Product.
+type Product struct {
+	CommandName    string            `json:"commandName"`
+	CreatedAt      Timestamp         `json:"createdAt"`
+	CurrentVersion *Version          `json:"currentVersion,omitempty"`
+	Description    string            `json:"description"`
+	DisplayName    string            `json:"displayName"`
+	Id             UUID              `json:"id"`
+	InstallKey     UUID              `json:"installKey"`
+	Package        Name              `json:"package"`
+	Platforms      []ProductPlatform `json:"platforms"`
+	PublishedAt    *Timestamp        `json:"publishedAt,omitempty"`
+	Repository     Name              `json:"repository"`
+	Slug           Name              `json:"slug"`
+	UpdatedAt      Timestamp         `json:"updatedAt"`
+}
+
+// ProductPage defines model for ProductPage.
+type ProductPage struct {
+	Items      []Product   `json:"items"`
+	NextCursor *PageCursor `json:"nextCursor"`
+}
+
+// ProductPlatform defines model for ProductPlatform.
+type ProductPlatform struct {
+	Arch     Coordinate              `json:"arch"`
+	Format   ProductPlatformFormat   `json:"format"`
+	Os       Coordinate              `json:"os"`
+	Strategy ProductPlatformStrategy `json:"strategy"`
+	Variant  OptionalCoordinate      `json:"variant"`
+}
+
+// ProductPlatformFormat defines model for ProductPlatform.Format.
+type ProductPlatformFormat string
+
+// ProductPlatformStrategy defines model for ProductPlatform.Strategy.
+type ProductPlatformStrategy string
+
 // PromoteChannelRequest defines model for PromoteChannelRequest.
 type PromoteChannelRequest struct {
 	Reason  string  `json:"reason"`
@@ -351,6 +523,7 @@ type ReleaseArtifact struct {
 	Arch     Coordinate         `json:"arch"`
 	Artifact Artifact           `json:"artifact"`
 	Id       UUID               `json:"id"`
+	Install  *InstallSpec       `json:"install,omitempty"`
 	Os       Coordinate         `json:"os"`
 	Role     OptionalCoordinate `json:"role"`
 	Variant  OptionalCoordinate `json:"variant"`
@@ -493,6 +666,9 @@ type CursorQueryParameter = string
 // IdempotencyKeyHeaderParameter defines model for IdempotencyKey.
 type IdempotencyKeyHeaderParameter = string
 
+// InstallKeyPathParameter defines model for InstallKey.
+type InstallKeyPathParameter = UUID
+
 // KeyIDPathParameter defines model for KeyID.
 type KeyIDPathParameter = string
 
@@ -501,6 +677,9 @@ type LimitQueryParameter = int
 
 // PackagePathParameter defines model for PackageName.
 type PackagePathParameter = Name
+
+// ProductPathParameter defines model for Product.
+type ProductPathParameter = Name
 
 // RangeHeaderParameter defines model for Range.
 type RangeHeaderParameter = string
@@ -560,6 +739,22 @@ type bearerAuthContextKey string
 type ListAuditEventsParams struct {
 	CursorQueryParameter *CursorQueryParameter `form:"cursor,omitempty" json:"cursor,omitempty"`
 	LimitQueryParameter  *LimitQueryParameter  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// ListProductsParams defines parameters for ListProducts.
+type ListProductsParams struct {
+	CursorQueryParameter *CursorQueryParameter `form:"cursor,omitempty" json:"cursor,omitempty"`
+	LimitQueryParameter  *LimitQueryParameter  `form:"limit,omitempty" json:"limit,omitempty"`
+}
+
+// CreateProductParams defines parameters for CreateProduct.
+type CreateProductParams struct {
+	IdempotencyKeyHeaderParameter *IdempotencyKeyHeaderParameter `json:"Idempotency-Key,omitempty"`
+}
+
+// RotateProductInstallKeyParams defines parameters for RotateProductInstallKey.
+type RotateProductInstallKeyParams struct {
+	IdempotencyKeyHeaderParameter *IdempotencyKeyHeaderParameter `json:"Idempotency-Key,omitempty"`
 }
 
 // ListRepositoriesParams defines parameters for ListRepositories.
@@ -677,6 +872,29 @@ type CreateTokenParams struct {
 type RevokeTokenParams struct {
 	IdempotencyKeyHeaderParameter *IdempotencyKeyHeaderParameter `json:"Idempotency-Key,omitempty"`
 }
+
+// DownloadProductInstallParams defines parameters for DownloadProductInstall.
+type DownloadProductInstallParams struct {
+	Os      Coordinate          `form:"os" json:"os"`
+	Arch    Coordinate          `form:"arch" json:"arch"`
+	Variant *OptionalCoordinate `form:"variant,omitempty" json:"variant,omitempty"`
+
+	// Version Immutable published version returned by resolve. Omit only for one-step bootstrap of the current stable version.
+	Version *Version `form:"version,omitempty" json:"version,omitempty"`
+
+	// Sha256 Artifact digest returned by resolve; required with version.
+	Sha256 *Sha256 `form:"sha256,omitempty" json:"sha256,omitempty"`
+}
+
+// ResolveProductInstallParams defines parameters for ResolveProductInstall.
+type ResolveProductInstallParams struct {
+	Os      Coordinate          `form:"os" json:"os"`
+	Arch    Coordinate          `form:"arch" json:"arch"`
+	Variant *OptionalCoordinate `form:"variant,omitempty" json:"variant,omitempty"`
+}
+
+// CreateProductJSONRequestBody defines body for CreateProduct for application/json ContentType.
+type CreateProductJSONRequestBody = CreateProductRequest
 
 // CreateRepositoryJSONRequestBody defines body for CreateRepository for application/json ContentType.
 type CreateRepositoryJSONRequestBody = CreateRepositoryRequest

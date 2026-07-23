@@ -16,13 +16,7 @@ type LookupFunc func(string) (string, bool)
 
 type Config struct {
 	DatabaseURL                string
-	MinIOEndpoint              string
-	MinIOPublicEndpoint        string
-	MinIORegion                string
-	MinIOAccessKey             string
-	MinIOSecretKey             string
-	MinIOBucket                string
-	MinIOUseTLS                bool
+	FilesystemRoot             string
 	TokenPepper                []byte
 	IdempotencyResponseKey     []byte
 	SigningPrivateKeyFile      string
@@ -64,16 +58,7 @@ func Load(lookup LookupFunc) (Config, error) {
 	if cfg.DatabaseURL, err = required(lookup, "DATABASE_URL"); err != nil {
 		return Config{}, err
 	}
-	if cfg.MinIOEndpoint, err = required(lookup, "MINIO_ENDPOINT"); err != nil {
-		return Config{}, err
-	}
-	if cfg.MinIOAccessKey, err = required(lookup, "MINIO_ACCESS_KEY"); err != nil {
-		return Config{}, err
-	}
-	if cfg.MinIOSecretKey, err = required(lookup, "MINIO_SECRET_KEY"); err != nil {
-		return Config{}, err
-	}
-	if cfg.MinIOBucket, err = required(lookup, "MINIO_BUCKET"); err != nil {
+	if cfg.FilesystemRoot, err = required(lookup, "FILESYSTEM_ROOT"); err != nil {
 		return Config{}, err
 	}
 	if cfg.SigningPrivateKeyFile, err = required(lookup, "SIGNING_PRIVATE_KEY_FILE"); err != nil {
@@ -88,12 +73,6 @@ func Load(lookup LookupFunc) (Config, error) {
 	if cfg.IdempotencyResponseKey, err = requiredKey(lookup, "IDEMPOTENCY_RESPONSE_KEY"); err != nil {
 		return Config{}, err
 	}
-	if cfg.MinIOUseTLS, err = boolValue(lookup, "MINIO_USE_TLS", false); err != nil {
-		return Config{}, err
-	}
-
-	cfg.MinIOPublicEndpoint = stringValue(lookup, "MINIO_PUBLIC_ENDPOINT", "")
-	cfg.MinIORegion = stringValue(lookup, "MINIO_REGION", "us-east-1")
 	cfg.HTTPAddr = stringValue(lookup, "HTTP_ADDR", ":8080")
 	if cfg.MaxUploadBytes, err = int64Value(lookup, "MAX_UPLOAD_BYTES", 10<<30); err != nil {
 		return Config{}, err

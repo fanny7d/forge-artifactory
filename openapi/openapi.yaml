@@ -226,6 +226,208 @@ x-base-paths: &basePaths
           $ref: "#/components/responses/Conflict"
         "429":
           $ref: '#/components/responses/TooManyRequests'
+  /api/v1/products:
+    post:
+      operationId: createProduct
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateProductRequest"
+      responses:
+        "201":
+          description: CLI product created.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+    get:
+      operationId: listProducts
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: CLI products for an administrator.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ProductPage"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/products/{product}:
+    parameters:
+      - $ref: "#/components/parameters/Product"
+    get:
+      operationId: getProduct
+      responses:
+        "200":
+          description: CLI product details.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /api/v1/products/{product}/install-key/rotate:
+    parameters:
+      - $ref: "#/components/parameters/Product"
+    post:
+      operationId: rotateProductInstallKey
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      responses:
+        "200":
+          description: Product install key rotated; the prior key remains valid for a 30-day migration window.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Product"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: '#/components/responses/TooManyRequests'
+  /i/{installKey}/{product}/install:
+    parameters:
+      - $ref: "#/components/parameters/InstallKey"
+      - $ref: "#/components/parameters/Product"
+    get:
+      operationId: getProductInstallScript
+      security: []
+      responses:
+        "200":
+          description: Current-user POSIX bootstrap script.
+          content:
+            text/x-shellscript:
+              schema:
+                type: string
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /i/{installKey}/{product}/resolve:
+    parameters:
+      - $ref: "#/components/parameters/InstallKey"
+      - $ref: "#/components/parameters/Product"
+    get:
+      operationId: resolveProductInstall
+      security: []
+      parameters:
+        - name: os
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Coordinate"
+        - name: arch
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Coordinate"
+        - name: variant
+          in: query
+          schema:
+            $ref: "#/components/schemas/OptionalCoordinate"
+      responses:
+        "200":
+          description: Signed stable release resolved with a product-scoped install key.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResolveResponse"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+  /i/{installKey}/{product}/download:
+    parameters:
+      - $ref: "#/components/parameters/InstallKey"
+      - $ref: "#/components/parameters/Product"
+    get:
+      operationId: downloadProductInstall
+      security: []
+      parameters:
+        - name: os
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Coordinate"
+        - name: arch
+          in: query
+          required: true
+          schema:
+            $ref: "#/components/schemas/Coordinate"
+        - name: variant
+          in: query
+          schema:
+            $ref: "#/components/schemas/OptionalCoordinate"
+        - name: version
+          in: query
+          description: Immutable published version returned by resolve. Omit only for one-step bootstrap of the current stable version.
+          schema:
+            $ref: "#/components/schemas/Version"
+        - name: sha256
+          in: query
+          description: Artifact digest returned by resolve; required with version.
+          schema:
+            $ref: "#/components/schemas/Sha256"
+      responses:
+        "200":
+          description: Credential-scoped stable Artifact bytes.
+          headers:
+            X-Checksum-Sha256:
+              required: true
+              schema:
+                $ref: "#/components/schemas/Sha256"
+            X-Forge-Version:
+              required: true
+              schema:
+                $ref: "#/components/schemas/Version"
+          content:
+            application/octet-stream:
+              schema:
+                type: string
+                format: binary
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
   /api/v1/service-accounts:
     post:
       operationId: createServiceAccount
@@ -420,6 +622,20 @@ components:
       required: true
       schema:
         $ref: "#/components/schemas/Name"
+    Product:
+      x-go-name: ProductPathParameter
+      name: product
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/Name"
+    InstallKey:
+      x-go-name: InstallKeyPathParameter
+      name: installKey
+      in: path
+      required: true
+      schema:
+        $ref: "#/components/schemas/UUID"
     ChannelName:
       x-go-name: ChannelPathParameter
       name: channel
@@ -642,7 +858,7 @@ components:
       type: string
       minLength: 1
       maxLength: 128
-      pattern: "^[A-Za-z0-9][A-Za-z0-9._+-]{0,127}$"
+      pattern: '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-((0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*)(\.(0|[1-9][0-9]*|[0-9]*[A-Za-z-][0-9A-Za-z-]*))*))?(\+([0-9A-Za-z-]+(\.[0-9A-Za-z-]+)*))?$'
     Coordinate:
       type: string
       minLength: 1
@@ -738,6 +954,88 @@ components:
             $ref: "#/components/schemas/Repository"
         nextCursor:
           $ref: "#/components/schemas/PageCursor"
+    CreateProductRequest:
+      type: object
+      additionalProperties: false
+      required: [slug, displayName, commandName]
+      properties:
+        slug:
+          $ref: "#/components/schemas/Name"
+        displayName:
+          type: string
+          minLength: 1
+          maxLength: 128
+        description:
+          type: string
+          maxLength: 2048
+          default: ""
+        commandName:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+    ProductPlatform:
+      type: object
+      additionalProperties: false
+      required: [os, arch, variant, strategy, format]
+      properties:
+        os:
+          $ref: "#/components/schemas/Coordinate"
+        arch:
+          $ref: "#/components/schemas/Coordinate"
+        variant:
+          $ref: "#/components/schemas/OptionalCoordinate"
+        strategy:
+          type: string
+          enum: [self-replace, bundle]
+        format:
+          type: string
+          enum: [raw, tar.gz, zip]
+    Product:
+      type: object
+      additionalProperties: false
+      required: [id, slug, displayName, description, commandName, repository, package, installKey, platforms, createdAt, updatedAt]
+      properties:
+        id:
+          $ref: "#/components/schemas/UUID"
+        slug:
+          $ref: "#/components/schemas/Name"
+        displayName:
+          type: string
+        description:
+          type: string
+        commandName:
+          type: string
+        repository:
+          $ref: "#/components/schemas/Name"
+        package:
+          $ref: "#/components/schemas/Name"
+        installKey:
+          $ref: "#/components/schemas/UUID"
+          description: Permanent product-scoped download credential. Treat as a secret.
+        currentVersion:
+          $ref: "#/components/schemas/Version"
+        publishedAt:
+          $ref: "#/components/schemas/Timestamp"
+        platforms:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductPlatform"
+        createdAt:
+          $ref: "#/components/schemas/Timestamp"
+        updatedAt:
+          $ref: "#/components/schemas/Timestamp"
+    ProductPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/Product"
+        nextCursor:
+          $ref: "#/components/schemas/PageCursor"
     Artifact:
       type: object
       additionalProperties: false
@@ -820,6 +1118,51 @@ components:
     ReleaseState:
       type: string
       enum: [draft, publishing, published, publish_failed]
+    InstallHook:
+      type: object
+      additionalProperties: false
+      required: [phase, path, timeoutSeconds]
+      properties:
+        phase:
+          type: string
+          enum: [preflight, post-install, verify]
+        path:
+          type: string
+          minLength: 1
+          maxLength: 1024
+        args:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            minLength: 1
+            maxLength: 1024
+        timeoutSeconds:
+          type: integer
+          minimum: 1
+          maximum: 300
+    InstallSpec:
+      type: object
+      additionalProperties: false
+      required: [strategy, format, mode]
+      properties:
+        strategy:
+          type: string
+          enum: [self-replace, bundle]
+        format:
+          type: string
+          enum: [raw, tar.gz, zip]
+        entrypoint:
+          type: string
+          maxLength: 1024
+        mode:
+          type: string
+          pattern: "^0[0-7]{3}$"
+        hooks:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/InstallHook"
     AddReleaseArtifactRequest:
       type: object
       additionalProperties: false
@@ -837,6 +1180,9 @@ components:
           $ref: "#/components/schemas/OptionalCoordinate"
         role:
           $ref: "#/components/schemas/OptionalCoordinate"
+          description: Product/installable releases must use exactly "binary"; the field remains optional for legacy non-product releases.
+        install:
+          $ref: "#/components/schemas/InstallSpec"
     ReleaseArtifact:
       type: object
       additionalProperties: false
@@ -854,6 +1200,8 @@ components:
           $ref: "#/components/schemas/OptionalCoordinate"
         role:
           $ref: "#/components/schemas/OptionalCoordinate"
+        install:
+          $ref: "#/components/schemas/InstallSpec"
     Release:
       type: object
       additionalProperties: false
@@ -1277,7 +1625,7 @@ paths:
                 type: string
                 format: binary
         "307":
-          description: Redirect to a short-lived public MinIO URL.
+          description: Redirect to a short-lived public object-storage URL when supported by the selected backend.
           headers:
             Location:
               required: true

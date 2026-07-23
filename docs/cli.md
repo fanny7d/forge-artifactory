@@ -3,6 +3,10 @@
 `artifactctl` 是 Artifact Repository 的终端客户端。首版覆盖制品上传、按路径下载、
 元数据查看，以及从已签名的 Channel 解析并拉取制品。
 
+如果要让业务 CLI 自己在启动时检查并升级，请使用
+[`pkg/forgeupdate`](../pkg/forgeupdate)；完整的 Product、Install Key、两种安装策略和
+嵌入示例见 [`updater.md`](updater.md)。
+
 ## 构建
 
 ```bash
@@ -67,8 +71,8 @@ artifactctl download --force -o ./downloads/edgecli \
   releases/linux/arm64/1.2.0/edgecli
 ```
 
-服务端配置了公开 MinIO 端点时，可以使用 `--redirect`。CLI 在访问预签名 URL 前会
-移除 Bearer Token：
+服务端使用支持公开预签名 URL 的对象存储后端时，可以使用 `--redirect`。filesystem
+模式不支持重定向。CLI 在访问预签名 URL 前会移除 Bearer Token：
 
 ```bash
 artifactctl download --redirect -o ./downloads/edgecli \

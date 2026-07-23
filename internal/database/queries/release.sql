@@ -34,8 +34,8 @@ ORDER BY created_at DESC, id DESC
 LIMIT sqlc.arg('page_limit');
 
 -- name: AddReleaseArtifact :one
-INSERT INTO release_artifacts (release_id, artifact_id, os, arch, variant, role)
-VALUES ($1, $2, $3, $4, $5, $6)
+INSERT INTO release_artifacts (release_id, artifact_id, os, arch, variant, role, install_spec)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
 RETURNING *;
 
 -- name: RemoveReleaseArtifact :execrows

@@ -49,6 +49,7 @@ type AddArtifactRequest struct {
 	Arch          string
 	Variant       string
 	Role          string
+	Install       *InstallSpec
 }
 
 type RemoveArtifactRequest struct {
@@ -81,13 +82,14 @@ type Artifact struct {
 }
 
 type ReleaseArtifact struct {
-	ID       uuid.UUID `json:"id"`
-	Artifact Artifact  `json:"artifact"`
-	OS       string    `json:"os"`
-	Arch     string    `json:"arch"`
-	Variant  string    `json:"variant"`
-	Role     string    `json:"role"`
-	Replayed bool      `json:"-"`
+	ID       uuid.UUID    `json:"id"`
+	Artifact Artifact     `json:"artifact"`
+	OS       string       `json:"os"`
+	Arch     string       `json:"arch"`
+	Variant  string       `json:"variant"`
+	Role     string       `json:"role"`
+	Install  *InstallSpec `json:"install,omitempty"`
+	Replayed bool         `json:"-"`
 }
 
 type Release struct {
@@ -214,6 +216,10 @@ func (s *DraftService) AddArtifact(ctx context.Context, request AddArtifactReque
 	if err := validateMutation(request.Mutation); err != nil {
 		return ReleaseArtifact{}, err
 	}
+	installSpec, err := encodeInstallSpec(request.Install)
+	if err != nil {
+		return ReleaseArtifact{}, err
+	}
 	var terminalRepositoryID uuid.UUID
 	idempotencyRequest := withReleaseTerminalAudit(
 		mutationIdempotencyRequest(request.Mutation, s.idempotencyTTL),
@@ -264,12 +270,13 @@ func (s *DraftService) AddArtifact(ctx context.Context, request AddArtifactReque
 			return idempotency.Response{}, ErrConflict
 		}
 		created, err := queries.AddReleaseArtifact(ctx, db.AddReleaseArtifactParams{
-			ReleaseID:  releaseRow.ID,
-			ArtifactID: artifactRow.ID,
-			Os:         request.OS,
-			Arch:       request.Arch,
-			Variant:    request.Variant,
-			Role:       request.Role,
+			ReleaseID:   releaseRow.ID,
+			ArtifactID:  artifactRow.ID,
+			Os:          request.OS,
+			Arch:        request.Arch,
+			Variant:     request.Variant,
+			Role:        request.Role,
+			InstallSpec: installSpec,
 		})
 		if err != nil {
 			return idempotency.Response{}, mapReleaseDatabaseError("add release artifact", err)
@@ -285,6 +292,7 @@ func (s *DraftService) AddArtifact(ctx context.Context, request AddArtifactReque
 			Arch:     created.Arch,
 			Variant:  created.Variant,
 			Role:     created.Role,
+			Install:  request.Install,
 		}
 		if _, err := s.audit.Record(ctx, tx, audit.Event{
 			ActorTokenID: request.Mutation.Actor.TokenID,
@@ -527,6 +535,10 @@ func releaseArtifacts(ctx context.Context, queries *db.Queries, releaseID uuid.U
 		if err != nil {
 			return nil, err
 		}
+		install, err := decodeInstallSpec(row.InstallSpec)
+		if err != nil {
+			return nil, fmt.Errorf("decode release artifact %s install spec: %w", row.ID, err)
+		}
 		items = append(items, ReleaseArtifact{
 			ID:       row.ID,
 			Artifact: artifact,
@@ -534,6 +546,7 @@ func releaseArtifacts(ctx context.Context, queries *db.Queries, releaseID uuid.U
 			Arch:     row.Arch,
 			Variant:  row.Variant,
 			Role:     row.Role,
+			Install:  install,
 		})
 	}
 	return items, nil

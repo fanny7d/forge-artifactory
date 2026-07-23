@@ -59,18 +59,19 @@ func (q *Queries) AbortPublishAttemptToDraft(ctx context.Context, arg AbortPubli
 }
 
 const addReleaseArtifact = `-- name: AddReleaseArtifact :one
-INSERT INTO release_artifacts (release_id, artifact_id, os, arch, variant, role)
-VALUES ($1, $2, $3, $4, $5, $6)
-RETURNING id, release_id, artifact_id, os, arch, variant, role, created_at
+INSERT INTO release_artifacts (release_id, artifact_id, os, arch, variant, role, install_spec)
+VALUES ($1, $2, $3, $4, $5, $6, $7)
+RETURNING id, release_id, artifact_id, os, arch, variant, role, created_at, install_spec
 `
 
 type AddReleaseArtifactParams struct {
-	ReleaseID  uuid.UUID `json:"release_id"`
-	ArtifactID uuid.UUID `json:"artifact_id"`
-	Os         string    `json:"os"`
-	Arch       string    `json:"arch"`
-	Variant    string    `json:"variant"`
-	Role       string    `json:"role"`
+	ReleaseID   uuid.UUID `json:"release_id"`
+	ArtifactID  uuid.UUID `json:"artifact_id"`
+	Os          string    `json:"os"`
+	Arch        string    `json:"arch"`
+	Variant     string    `json:"variant"`
+	Role        string    `json:"role"`
+	InstallSpec []byte    `json:"install_spec"`
 }
 
 func (q *Queries) AddReleaseArtifact(ctx context.Context, arg AddReleaseArtifactParams) (ReleaseArtifact, error) {
@@ -81,6 +82,7 @@ func (q *Queries) AddReleaseArtifact(ctx context.Context, arg AddReleaseArtifact
 		arg.Arch,
 		arg.Variant,
 		arg.Role,
+		arg.InstallSpec,
 	)
 	var i ReleaseArtifact
 	err := row.Scan(
@@ -92,6 +94,7 @@ func (q *Queries) AddReleaseArtifact(ctx context.Context, arg AddReleaseArtifact
 		&i.Variant,
 		&i.Role,
 		&i.CreatedAt,
+		&i.InstallSpec,
 	)
 	return i, err
 }
@@ -551,7 +554,7 @@ func (q *Queries) ListRecoverablePublishAttemptIDs(ctx context.Context, arg List
 }
 
 const listReleaseArtifacts = `-- name: ListReleaseArtifacts :many
-SELECT ra.id, ra.release_id, ra.artifact_id, ra.os, ra.arch, ra.variant, ra.role, ra.created_at, a.repository_id, a.logical_path, a.blob_sha256, a.media_type, a.filename,
+SELECT ra.id, ra.release_id, ra.artifact_id, ra.os, ra.arch, ra.variant, ra.role, ra.created_at, ra.install_spec, a.repository_id, a.logical_path, a.blob_sha256, a.media_type, a.filename,
        a.properties, a.created_by AS artifact_created_by, a.created_at AS artifact_created_at,
        b.size, b.state AS blob_state
 FROM release_artifacts ra
@@ -570,6 +573,7 @@ type ListReleaseArtifactsRow struct {
 	Variant           string             `json:"variant"`
 	Role              string             `json:"role"`
 	CreatedAt         pgtype.Timestamptz `json:"created_at"`
+	InstallSpec       []byte             `json:"install_spec"`
 	RepositoryID      uuid.UUID          `json:"repository_id"`
 	LogicalPath       string             `json:"logical_path"`
 	BlobSha256        string             `json:"blob_sha256"`
@@ -600,6 +604,7 @@ func (q *Queries) ListReleaseArtifacts(ctx context.Context, releaseID uuid.UUID)
 			&i.Variant,
 			&i.Role,
 			&i.CreatedAt,
+			&i.InstallSpec,
 			&i.RepositoryID,
 			&i.LogicalPath,
 			&i.BlobSha256,

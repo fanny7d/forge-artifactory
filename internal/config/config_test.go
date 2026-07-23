@@ -25,11 +25,8 @@ func TestLoadAppliesDocumentedDefaults(t *testing.T) {
 	if cfg.HTTPAddr != ":8080" {
 		t.Fatalf("HTTPAddr = %q, want :8080", cfg.HTTPAddr)
 	}
-	if cfg.MinIOPublicEndpoint != "" {
-		t.Fatalf("MinIOPublicEndpoint = %q, want empty proxy-only default", cfg.MinIOPublicEndpoint)
-	}
-	if cfg.MinIORegion != "us-east-1" {
-		t.Fatalf("MinIORegion = %q, want us-east-1", cfg.MinIORegion)
+	if cfg.FilesystemRoot != "/var/lib/artifact-repository" {
+		t.Fatalf("FilesystemRoot = %q", cfg.FilesystemRoot)
 	}
 	if cfg.MaxUploadBytes != 10<<30 {
 		t.Fatalf("MaxUploadBytes = %d, want %d", cfg.MaxUploadBytes, int64(10<<30))
@@ -73,20 +70,30 @@ func TestLoadAppliesDocumentedDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadAcceptsSeparateMinIOPublicEndpoint(t *testing.T) {
-	values := validValues()
-	values["MINIO_PUBLIC_ENDPOINT"] = "artifacts.example.com"
-	values["MINIO_REGION"] = "cn-north-1"
+func TestLoadRejectsInvalidStorageConfiguration(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(map[string]string)
+		want   string
+	}{
+		{
+			name: "filesystem root required",
+			mutate: func(values map[string]string) {
+				delete(values, "FILESYSTEM_ROOT")
+			},
+			want: "FILESYSTEM_ROOT",
+		},
+	}
 
-	cfg, err := Load(mapLookup(values))
-	if err != nil {
-		t.Fatalf("Load() error = %v", err)
-	}
-	if cfg.MinIOPublicEndpoint != "artifacts.example.com" {
-		t.Fatalf("MinIOPublicEndpoint = %q", cfg.MinIOPublicEndpoint)
-	}
-	if cfg.MinIORegion != "cn-north-1" {
-		t.Fatalf("MinIORegion = %q", cfg.MinIORegion)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			values := validValues()
+			tt.mutate(values)
+			_, err := Load(mapLookup(values))
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("Load() error = %v, want error containing %q", err, tt.want)
+			}
+		})
 	}
 }
 
@@ -150,10 +157,7 @@ func validValues() map[string]string {
 	key := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
 	return map[string]string{
 		"DATABASE_URL":             "postgres://artifact:secret@localhost/artifact",
-		"MINIO_ENDPOINT":           "localhost:9000",
-		"MINIO_ACCESS_KEY":         "minio-access",
-		"MINIO_SECRET_KEY":         "minio-secret",
-		"MINIO_BUCKET":             "artifacts",
+		"FILESYSTEM_ROOT":          "/var/lib/artifact-repository",
 		"TOKEN_PEPPER":             key,
 		"IDEMPOTENCY_RESPONSE_KEY": key,
 		"SIGNING_PRIVATE_KEY_FILE": "/keys/private.pem",

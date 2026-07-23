@@ -26,6 +26,7 @@ import (
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/idempotency"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/jobs"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/metrics"
+	"superfan.myasustor.com/fanchao/artifact-repository/internal/product"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/ratelimit"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/release"
 	"superfan.myasustor.com/fanchao/artifact-repository/internal/repository"
@@ -34,16 +35,18 @@ import (
 )
 
 type serviceRuntime struct {
-	pool        *pgxpool.Pool
-	store       *storage.MinIO
-	signer      *signing.Ed25519
-	clock       clock.System
-	ids         id.UUIDGenerator
-	audit       *audit.Service
-	idempotency *idempotency.Service
-	blobs       *blob.Service
-	publisher   *release.PublishService
-	metrics     *metrics.Registry
+	pool              *pgxpool.Pool
+	store             storage.Store
+	storageDependency string
+	signer            *signing.Ed25519
+	clock             clock.System
+	ids               id.UUIDGenerator
+	audit             *audit.Service
+	idempotency       *idempotency.Service
+	blobs             *blob.Service
+	products          *product.Service
+	publisher         *release.PublishService
+	metrics           *metrics.Registry
 }
 
 func openCheckedDatabase(ctx context.Context, databaseURL string) (*pgxpool.Pool, error) {
@@ -68,11 +71,7 @@ func newServiceRuntime(ctx context.Context, cfg config.Config, random io.Reader)
 			pool.Close()
 		}
 	}()
-	store, err := storage.NewMinIO(storage.MinIOOptions{
-		Endpoint: cfg.MinIOEndpoint, PublicEndpoint: cfg.MinIOPublicEndpoint,
-		AccessKey: cfg.MinIOAccessKey, SecretKey: cfg.MinIOSecretKey,
-		Bucket: cfg.MinIOBucket, Region: cfg.MinIORegion, UseTLS: cfg.MinIOUseTLS,
-	})
+	store, err := newStorage(cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -93,11 +92,19 @@ func newServiceRuntime(ctx context.Context, cfg config.Config, random io.Reader)
 	if err != nil {
 		return nil, err
 	}
+	productService, err := product.NewService(product.Options{
+		Pool: pool, Idempotency: idempotencyService, Audit: auditService,
+		IdempotencyTTL: cfg.IdempotencyTTL,
+	})
+	if err != nil {
+		return nil, err
+	}
 	publisher, err := release.NewPublishService(release.PublishServiceOptions{
 		Pool: pool, Blobs: blobService, Store: store, Signer: signer,
 		Audit: auditService, Idempotency: idempotencyService,
 		Clock: systemClock, IDs: ids, LeaseDuration: cfg.PublishLease,
-		Heartbeat: cfg.PublishHeartbeat, IdempotencyTTL: cfg.IdempotencyTTL, Metrics: metricRegistry,
+		Heartbeat: cfg.PublishHeartbeat, IdempotencyTTL: cfg.IdempotencyTTL,
+		Metrics: metricRegistry, Products: productService,
 	})
 	if err != nil {
 		return nil, err
@@ -106,10 +113,15 @@ func newServiceRuntime(ctx context.Context, cfg config.Config, random io.Reader)
 		return nil, err
 	}
 	return &serviceRuntime{
-		pool: pool, store: store, signer: signer, clock: systemClock, ids: ids,
+		pool: pool, store: store, storageDependency: "filesystem",
+		signer: signer, clock: systemClock, ids: ids,
 		audit: auditService, idempotency: idempotencyService, blobs: blobService,
-		publisher: publisher, metrics: metricRegistry,
+		products: productService, publisher: publisher, metrics: metricRegistry,
 	}, nil
+}
+
+func newStorage(cfg config.Config) (storage.Store, error) {
+	return storage.NewFilesystem(cfg.FilesystemRoot)
 }
 
 func (runtime *serviceRuntime) Close() {
@@ -196,11 +208,13 @@ func runAPI(ctx context.Context, cfg config.Config, random io.Reader) error {
 		return err
 	}
 	handler := runtime.metrics.InstrumentHTTP(api.NewServer(api.Dependencies{
-		Readiness:        &runtimeReadiness{pool: runtime.pool, store: runtime.store, metrics: runtime.metrics},
+		Readiness: &runtimeReadiness{
+			pool: runtime.pool, store: runtime.store, storageDependency: runtime.storageDependency, metrics: runtime.metrics,
+		},
 		ReadinessTimeout: cfg.ReadinessTimeout, Metrics: runtime.metrics.Handler(),
 		Authenticator: authService, RateLimiter: requestLimiter, Identity: authService, Audit: runtime.audit,
 		Repositories: repositoryService, Artifacts: artifactService, Packages: packageService,
-		Drafts: draftService, Publisher: runtime.publisher, Channels: channelService,
+		Products: runtime.products, Drafts: draftService, Publisher: runtime.publisher, Channels: channelService,
 	}))
 	return serveHTTP(ctx, cfg.HTTPAddr, handler)
 }
@@ -251,7 +265,9 @@ func runWorker(ctx context.Context, cfg config.Config, random io.Reader) error {
 		return err
 	}
 	handler := api.NewServer(api.Dependencies{
-		Readiness:        &runtimeReadiness{pool: runtime.pool, store: runtime.store, metrics: runtime.metrics},
+		Readiness: &runtimeReadiness{
+			pool: runtime.pool, store: runtime.store, storageDependency: runtime.storageDependency, metrics: runtime.metrics,
+		},
 		ReadinessTimeout: cfg.ReadinessTimeout, Metrics: runtime.metrics.Handler(),
 	})
 	return runTogether(ctx,
@@ -316,9 +332,10 @@ func refreshWorkerMetrics(ctx context.Context, pool *pgxpool.Pool, registry *met
 }
 
 type runtimeReadiness struct {
-	pool    *pgxpool.Pool
-	store   storage.Store
-	metrics *metrics.Registry
+	pool              *pgxpool.Pool
+	store             storage.Store
+	storageDependency string
+	metrics           *metrics.Registry
 }
 
 func (readiness *runtimeReadiness) Ready(ctx context.Context) error {
@@ -330,7 +347,7 @@ func (readiness *runtimeReadiness) Ready(ctx context.Context) error {
 	}
 	started = time.Now()
 	err = readiness.store.Ready(ctx)
-	readiness.observeDependency("minio", err, started)
+	readiness.observeDependency(readiness.storageDependency, err, started)
 	if err != nil {
 		return err
 	}

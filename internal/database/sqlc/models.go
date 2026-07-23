@@ -122,6 +122,21 @@ type Package struct {
 	CreatedAt    pgtype.Timestamptz `json:"created_at"`
 }
 
+type Product struct {
+	ID                          uuid.UUID          `json:"id"`
+	Slug                        string             `json:"slug"`
+	PackageID                   uuid.UUID          `json:"package_id"`
+	DisplayName                 string             `json:"display_name"`
+	Description                 string             `json:"description"`
+	CommandName                 string             `json:"command_name"`
+	InstallKey                  uuid.UUID          `json:"install_key"`
+	PreviousInstallKey          *uuid.UUID         `json:"previous_install_key"`
+	PreviousInstallKeyExpiresAt pgtype.Timestamptz `json:"previous_install_key_expires_at"`
+	CreatedBy                   uuid.UUID          `json:"created_by"`
+	CreatedAt                   pgtype.Timestamptz `json:"created_at"`
+	UpdatedAt                   pgtype.Timestamptz `json:"updated_at"`
+}
+
 type PublishAttempt struct {
 	ID                  uuid.UUID          `json:"id"`
 	ReleaseID           uuid.UUID          `json:"release_id"`
@@ -160,14 +175,15 @@ type Release struct {
 }
 
 type ReleaseArtifact struct {
-	ID         uuid.UUID          `json:"id"`
-	ReleaseID  uuid.UUID          `json:"release_id"`
-	ArtifactID uuid.UUID          `json:"artifact_id"`
-	Os         string             `json:"os"`
-	Arch       string             `json:"arch"`
-	Variant    string             `json:"variant"`
-	Role       string             `json:"role"`
-	CreatedAt  pgtype.Timestamptz `json:"created_at"`
+	ID          uuid.UUID          `json:"id"`
+	ReleaseID   uuid.UUID          `json:"release_id"`
+	ArtifactID  uuid.UUID          `json:"artifact_id"`
+	Os          string             `json:"os"`
+	Arch        string             `json:"arch"`
+	Variant     string             `json:"variant"`
+	Role        string             `json:"role"`
+	CreatedAt   pgtype.Timestamptz `json:"created_at"`
+	InstallSpec []byte             `json:"install_spec"`
 }
 
 type ReleaseManifest struct {
